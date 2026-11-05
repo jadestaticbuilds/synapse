@@ -510,7 +510,7 @@ cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=perfo
 cvs.addEventListener('pointermove',e=>{
   if(!dragging)return;
   const dx=e.clientX-sx,dy=e.clientY-sy;dragMoved+=Math.abs(dx)+Math.abs(dy);
-  if(!hasOrient){yawT=clamp(yawT-dx*0.0035,-1.0,1.0);pitchT=clamp(pitchT-dy*0.003,-0.55,0.55);}
+  if(!headActive){yawT=clamp(yawT-dx*0.0035,-1.0,1.0);pitchT=clamp(pitchT-dy*0.003,-0.55,0.55);}
   sx=e.clientX;sy=e.clientY;
 });
 cvs.addEventListener('pointerup',e=>{
@@ -518,8 +518,9 @@ cvs.addEventListener('pointerup',e=>{
   const dt=performance.now()-dragStart;
   if(dragMoved<14&&dt<350&&riding){
     const nowT=performance.now();
-    if(hasOrient&&nowT-lastTapT<350&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<40){
-      baseB=lastBeta;baseG=lastGamma;lastTapT=0; // double-tap: recenter view
+    if(headActive&&nowT-lastTapT<350&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<40){
+      if(lastDQ){baseDQ.copy(lastDQ);baseIsAbs=sawAbsolute;qRel.identity();qRelS.identity();}
+      lastTapT=0; // double-tap: recenter view
     }else{
       lastTapT=nowT;lastTapX=e.clientX;lastTapY=e.clientY;
       doPulse(e.clientX,e.clientY);
@@ -527,28 +528,35 @@ cvs.addEventListener('pointerup',e=>{
   }
 });
 cvs.addEventListener('pointercancel',()=>{dragging=false;});
-/* gyroscope look: move the phone to look around, YouTube-360 style.
-   Drag remains as the fallback on devices without motion sensors. */
-let hasOrient=false,baseB=0,baseG=0,lastBeta=0,lastGamma=0,lastTapT=0,lastTapX=0,lastTapY=0;
-function onOrient(e){
-  if(e.beta===null||e.gamma===null)return;
-  lastBeta=e.beta;lastGamma=e.gamma;
-  if(!hasOrient){
-    hasOrient=true;baseB=e.beta;baseG=e.gamma;
-    hintEl.innerHTML='Move your phone to look around &middot; Tap a cluster to pulse it &middot; Double-tap to recenter';
-  }
-  const dB=e.beta-baseB;let dG=e.gamma-baseG;
-  if(dG>180)dG-=360;if(dG<-180)dG+=360;
+/* full 360-degree head tracking: the phone is a window into the world.
+   Relative rotation from the pose at ride start (double-tap recenters).
+   No clamps, no drift-back: turn all the way around and the view follows. */
+let headActive=false,baseDQ=null,baseIsAbs=false,lastDQ=null,sawAbsolute=false;
+let lastTapT=0,lastTapX=0,lastTapY=0;
+const qRel=new THREE.Quaternion(),qRelS=new THREE.Quaternion(),tmpQ=new THREE.Quaternion();
+const trackE=new THREE.Euler(),zAxis=new THREE.Vector3(0,0,1),qTmpA=new THREE.Quaternion();
+function onOrient(e,isAbs){
+  if(e.alpha===null||e.beta===null||e.gamma===null)return;
+  if(isAbs)sawAbsolute=true;
+  if(sawAbsolute&&!isAbs)return;              // prefer compass-stable absolute
+  if(isAbs&&!baseIsAbs&&baseDQ)baseDQ=null;   // recapture base on switch
+  baseIsAbs=isAbs;
   const so=(((screen.orientation||{}).angle)||0)*Math.PI/180;
-  // NOTE (Nov 5): George found the textbook mapping mirrored on his S25 Ultra
-  // (turn left looked right, tilt felt flipped), so both signs are negated.
-  // The phone now works like a window, YouTube-360 style:
-  // turn left -> look left, tilt top away -> look up, tilt top toward you -> look down.
-  yawT=clamp((dG*Math.cos(so)+dB*Math.sin(so))*0.02,-1.0,1.0);
-  pitchT=clamp((-dG*Math.sin(so)+dB*Math.cos(so))*0.015,-0.55,0.55);
+  trackE.set(e.beta*Math.PI/180,e.alpha*Math.PI/180,-e.gamma*Math.PI/180,'YXZ');
+  const q=new THREE.Quaternion().setFromEuler(trackE);
+  q.multiply(qTmpA.setFromAxisAngle(zAxis,-so));
+  lastDQ=q;
+  if(!riding)return;
+  if(!baseDQ){
+    baseDQ=q.clone();qRel.identity();qRelS.identity();
+    if(!headActive){headActive=true;
+      hintEl.innerHTML='Move your phone to look around &middot; Tap a cluster to pulse it &middot; Double-tap to recenter';}
+  }else{
+    qRel.copy(q).multiply(tmpQ.copy(baseDQ).invert());
+  }
 }
-window.addEventListener('deviceorientation',onOrient);
-window.addEventListener('deviceorientationabsolute',onOrient);
+window.addEventListener('deviceorientation',e=>onOrient(e,false));
+window.addEventListener('deviceorientationabsolute',e=>onOrient(e,true));
 
 const ray=new THREE.Raycaster();
 function doPulse(px,py){
@@ -571,6 +579,7 @@ function beginRide(){
   }
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
   riding=true;rt=0;curSeg=-1;
+  baseDQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
   hudEl.classList.add('on');hintEl.classList.add('on');
   setTimeout(()=>hintEl.classList.remove('on'),9000);
   setChord(0,false);startMelody();
@@ -643,9 +652,16 @@ function frame(now){
   const targetRoll=clamp(-cross*260,-0.55,0.55);
   rollSm=lerp(rollSm,targetRoll,1-Math.pow(0.001,dt));
   camera.rotateZ(rollSm);
-  if(!dragging&&!hasOrient){yawT*=Math.pow(0.4,dt);pitchT*=Math.pow(0.4,dt);}
-  yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
-  camera.rotateY(yaw);camera.rotateX(pitch);
+  if(headActive){
+    // unrestricted 360 look: head-relative rotation applied to the track view
+    qRelS.slerp(qRel,1-Math.pow(0.000001,dt));
+    tmpQ.copy(camera.quaternion);
+    camera.quaternion.copy(qRelS).multiply(tmpQ);
+  }else{
+    if(!dragging){yawT*=Math.pow(0.4,dt);pitchT*=Math.pow(0.4,dt);}
+    yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
+    camera.rotateY(yaw);camera.rotateX(pitch);
+  }
   const sNorm=clamp(spd/0.013,0,1);
   fovSm=lerp(fovSm,62+sNorm*22,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
