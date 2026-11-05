@@ -160,21 +160,28 @@ function setChord(idx,soft){
   droneOsc.frequency.setTargetAtTime(m2f(ch.root-12),t,1.0);
   droneGain.gain.setTargetAtTime(soft?0.02:0.035,t,1.5);
 }
-// tap notes: A minor pentatonic across two octaves, picked at random
-const PENTA=[57,60,62,64,67,69,72,74,76,79,81,84];
-let lastChime=-1;
-function chime(){
-  if(!AC||!soundOn)return;const t=AC.currentTime;
-  let m;
-  do{ m=PENTA[Math.floor(Math.random()*PENTA.length)]; }while(m===lastChime);
-  lastChime=m;
-  [['triangle',1,0.20],['sine',2,0.07]].forEach(([ty,mult,v])=>{
+// tap dyads: two pentatonic notes a fifth apart (3 scale steps), picked at random
+const PENTA_DEG=[0,3,5,7,10]; // A minor pentatonic semitone offsets
+let lastDyad=-1;
+function chimeNote(t,midi,vol){
+  [['triangle',1,vol],['sine',2,vol*0.35]].forEach(([ty,mult,v])=>{
     const o=AC.createOscillator(),g=AC.createGain();
-    o.type=ty;o.frequency.value=m2f(m)*mult;
+    o.type=ty;o.frequency.value=m2f(midi)*mult;
     g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(v,t+0.015);
     g.gain.exponentialRampToValueAtTime(0.001,t+1.1);
     o.connect(g);g.connect(master);if(verb)g.connect(verb);o.start(t);o.stop(t+1.2);
   });
+}
+function chime(){
+  if(!AC||!soundOn)return;const t=AC.currentTime;
+  let d,o,key;
+  do{ d=Math.floor(Math.random()*5); o=Math.floor(Math.random()*2); key=d+5*o; }while(key===lastDyad);
+  lastDyad=key;
+  const m1=57+12*o+PENTA_DEG[d];
+  const d2=(d+3)%5, o2=o+(d+3>=5?1:0);
+  const m2=57+12*o2+PENTA_DEG[d2];
+  chimeNote(t,m1,0.15);
+  chimeNote(t,m2,0.15);
 }
 /* generative Rhodes melody: a sparse tune wandering over the pad.
    Pentatonic random-walk phrases, one note every couple of seconds. */
