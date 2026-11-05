@@ -160,10 +160,14 @@ function setChord(idx,soft){
   droneOsc.frequency.setTargetAtTime(m2f(ch.root-12),t,1.0);
   droneGain.gain.setTargetAtTime(soft?0.02:0.035,t,1.5);
 }
-const PENTA=[69,72,74,76,79,81];let pentaIdx=0;
+// tap notes: A minor pentatonic across two octaves, picked at random
+const PENTA=[57,60,62,64,67,69,72,74,76,79,81,84];
+let lastChime=-1;
 function chime(){
   if(!AC||!soundOn)return;const t=AC.currentTime;
-  const m=PENTA[pentaIdx%PENTA.length];pentaIdx++;
+  let m;
+  do{ m=PENTA[Math.floor(Math.random()*PENTA.length)]; }while(m===lastChime);
+  lastChime=m;
   [['triangle',1,0.20],['sine',2,0.07]].forEach(([ty,mult,v])=>{
     const o=AC.createOscillator(),g=AC.createGain();
     o.type=ty;o.frequency.value=m2f(m)*mult;
