@@ -54,7 +54,7 @@ canvas{display:block;}
 <div id="hint">Drag to look around &middot; Tap a cluster to pulse it</div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>A flight through a neural mindscape. Three minutes drifting through the clusters, the threads, and the quiet between them.</p>
+  <p>A flight along the neural line. Three minutes drifting through the clusters, the threads, and the quiet between them.</p>
   <div id="modeRow">
     <button class="modeBtn on" id="modeLook">LOOK AROUND</button>
     <button class="modeBtn" id="modeFixed">FIXED CAMERA</button>
@@ -298,12 +298,10 @@ const nebulaUniforms={uTime:{value:0}};
 
 /* ================= flight path (invisible) ================= */
 const PTS=[
-  [0,0,0],[12,10,-30],[-12,22,-60],[10,34,-90],[-8,46,-115],[0,58,-140],
-  [0,62,-155],[6,50,-175],[0,28,-195],[-4,8,-215],[0,-4,-235],[0,-6,-255],
-  [22,0,-280],[-24,4,-305],[28,2,-330],[-28,8,-355],[22,4,-380],[-18,8,-405],[0,10,-430],
-  [8,16,-470],[-6,24,-515],[4,30,-560],
-  [2,32,-600],[-4,34,-640],[6,32,-680],[-6,34,-720],[0,32,-760],
-  [0,40,-800],[4,52,-845],[0,62,-890],[0,66,-930]
+  [0,10,0],[6,12,-50],[-4,14,-100],[8,16,-150],[-8,15,-200],
+  [4,18,-250],[-6,20,-300],[10,22,-350],[0,20,-400],[-10,24,-450],
+  [6,26,-500],[-4,24,-550],[8,28,-600],[0,30,-650],[-8,28,-700],
+  [4,32,-750],[0,34,-800],[6,36,-850],[0,38,-900],[0,40,-930]
 ].map(p=>new THREE.Vector3(p[0],p[1],p[2]));
 const curve=new THREE.CatmullRomCurve3(PTS,false,'catmullrom',0.35);
 
@@ -509,7 +507,7 @@ function spawnRing(pos,color){
 }
 
 /* ================= ride ================= */
-const SPEED_KEYS=[[0,0.002],[0.05,0.004],[0.15,0.0045],[0.20,0.011],[0.28,0.013],[0.35,0.011],[0.55,0.010],[0.62,0.004],[0.70,0.0035],[0.76,0.010],[0.85,0.009],[0.92,0.0035],[1,0.0015]];
+const SPEED_KEYS=[[0,0.0025],[0.10,0.0048],[0.25,0.0058],[0.40,0.0062],[0.55,0.0058],[0.65,0.0042],[0.75,0.007],[0.85,0.0065],[0.92,0.004],[1,0.002]];
 const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
 let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
 let fixedMode=false;
@@ -700,7 +698,7 @@ function frame(now){
     }
   }
   // fixed camera: pure track view, nothing else touches it
-  const sNorm=clamp(spd/0.013,0,1);
+  const sNorm=clamp(spd/0.010,0,1);
   fovSm=lerp(fovSm,62+sNorm*22,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
   {
