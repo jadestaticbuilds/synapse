@@ -13,7 +13,7 @@ canvas{display:block;}
 .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;
   text-align:center;padding:28px;transition:opacity .8s;}
 .screen.hidden{opacity:0;pointer-events:none;}
-#title{background:radial-gradient(ellipse at 50% 120%,rgba(80,40,160,.35),transparent 60%),rgba(4,3,10,.55);}
+#title{background:radial-gradient(ellipse at 50% 120%,rgba(80,40,160,.30),transparent 60%),rgba(4,3,10,.45);}
 #title h1{font-size:52px;margin:0;letter-spacing:10px;font-weight:800;
   background:linear-gradient(135deg,#ffd27a,#ff7ad9,#7ae2ff);-webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 0 24px rgba(255,122,217,.45));}
@@ -34,7 +34,12 @@ canvas{display:block;}
 #hint{position:fixed;bottom:26px;left:0;right:0;text-align:center;z-index:5;color:#b9aee0;font-size:13px;opacity:0;transition:opacity 1s;pointer-events:none;}
 #hint.on{opacity:.85;}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.2/three.min.js"></script>
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
 </head>
 <body>
 <div id="stage"></div>
@@ -52,14 +57,20 @@ canvas{display:block;}
   <p>The threads settle. The clusters keep their light.</p>
   <button class="btn" id="againBtn">RIDE AGAIN</button>
 </div>
-<script>
-'use strict';
+<script type="module">
+import * as THREE from 'three';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+
 /* ================= utils ================= */
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 const rng = mulberry32(1337);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
-function smoothKeys(keys,t){ // keys: [[t,v],...] sorted; cosine interp
+function smoothKeys(keys,t){
   if(t<=keys[0][0])return keys[0][1];
   for(let i=0;i<keys.length-1;i++){
     const a=keys[i],b=keys[i+1];
@@ -67,7 +78,6 @@ function smoothKeys(keys,t){ // keys: [[t,v],...] sorted; cosine interp
   }
   return keys[keys.length-1][1];
 }
-// no-zoom lock
 document.addEventListener('gesturestart',e=>e.preventDefault());
 document.addEventListener('gesturechange',e=>e.preventDefault());
 let lastTE=0;
@@ -76,20 +86,19 @@ document.addEventListener('touchend',e=>{const n=Date.now();if(n-lastTE<300)e.pr
 /* ================= audio ================= */
 let AC=null, master=null, soundOn=true;
 let padOsc=[], padGains=[], whooshGain=null, whooshFilter=null;
-const CHORDS=[ // [root midi, intervals] per ride segment
-  {root:45,iv:[0,3,7,10,14]},   // Am9  - climb
-  {root:41,iv:[0,4,7,11,14]},   // Fmaj9 - drop
-  {root:48,iv:[0,4,7,11,14]},   // Cmaj9 - weave
-  {root:48,iv:[0,4,7,11,14]},   // Cmaj9 - breather (softer)
-  {root:50,iv:[0,3,7,10,14]},   // Dm9   - tunnel
-  {root:43,iv:[0,4,7,9,14]},    // G6/9  - finale
+const CHORDS=[
+  {root:45,iv:[0,3,7,10,14]},
+  {root:41,iv:[0,4,7,11,14]},
+  {root:48,iv:[0,4,7,11,14]},
+  {root:48,iv:[0,4,7,11,14]},
+  {root:50,iv:[0,3,7,10,14]},
+  {root:43,iv:[0,4,7,9,14]},
 ];
 const m2f=m=>440*Math.pow(2,(m-69)/12);
 function initAudio(){
   if(AC)return;
   try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
   master=AC.createGain();master.gain.value=0.85;master.connect(AC.destination);
-  // pad: 3 detuned saws through lowpass, per chord tone
   CHORDS[0].iv.forEach((iv,i)=>{
     const o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
     o.type='sawtooth';o.frequency.value=m2f(CHORDS[0].root+iv-12);o.detune.value=(i-2)*5;
@@ -98,7 +107,6 @@ function initAudio(){
     o.connect(f);f.connect(g);g.connect(master);o.start();
     padOsc.push({o,f});padGains.push(g);
   });
-  // whoosh: looped noise -> bandpass
   const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),d=buf.getChannelData(0);
   for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
   const n=AC.createBufferSource();n.buffer=buf;n.loop=true;
@@ -119,7 +127,7 @@ const PENTA=[69,72,74,76,79,81];let pentaIdx=0;
 function chime(){
   if(!AC||!soundOn)return;const t=AC.currentTime;
   const m=PENTA[pentaIdx%PENTA.length];pentaIdx++;
-  [[ 'triangle',1,0.20],[ 'sine',2,0.07]].forEach(([ty,mult,v])=>{
+  [['triangle',1,0.20],['sine',2,0.07]].forEach(([ty,mult,v])=>{
     const o=AC.createOscillator(),g=AC.createGain();
     o.type=ty;o.frequency.value=m2f(m)*mult;
     g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(v,t+0.015);
@@ -131,38 +139,94 @@ document.getElementById('sndBtn').onclick=e=>{e.stopPropagation();soundOn=!sound
   document.getElementById('sndBtn').style.opacity=soundOn?1:.4;
   if(master)master.gain.setTargetAtTime(soundOn?0.85:0,AC.currentTime,0.1);};
 
-/* ================= three setup ================= */
-if(typeof THREE==='undefined'){
-  document.getElementById('title').innerHTML='<h1>SYNAPSE</h1><p>Could not load the 3D engine. Check your connection and reload.</p>';
-  throw new Error('THREE missing');
-}
+/* ================= renderer / scene ================= */
 const stage=document.getElementById('stage');
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.75));
 renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.15;
 stage.appendChild(renderer.domElement);
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x04030a);
 scene.fog=new THREE.FogExp2(0x070512,0.0038);
-const camera=new THREE.PerspectiveCamera(64,innerWidth/innerHeight,0.5,4000);
+const camera=new THREE.PerspectiveCamera(64,innerWidth/innerHeight,0.5,4200);
 scene.add(camera);
 scene.add(new THREE.AmbientLight(0x404060,1.2));
 const dl=new THREE.DirectionalLight(0x8877ff,0.6);dl.position.set(50,100,50);scene.add(dl);
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
-// soft radial glow texture
+// post: bloom + vignette + filmic output
+const composer=new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.75));
+composer.addPass(new RenderPass(scene,camera));
+const bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.85,0.65,0.55);
+composer.addPass(bloomPass);
+const VignetteShader={
+  uniforms:{tDiffuse:{value:null}},
+  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader:'uniform sampler2D tDiffuse;varying vec2 vUv;void main(){vec4 c=texture2D(tDiffuse,vUv);float d=distance(vUv,vec2(0.5,0.5));c.rgb*=mix(0.5,1.0,smoothstep(0.95,0.35,d));gl_FragColor=c;}'
+};
+composer.addPass(new ShaderPass(VignetteShader));
+composer.addPass(new OutputPass());
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);composer.setSize(innerWidth,innerHeight);
+});
+
+/* ================= shared GLSL ================= */
+const NOISE_GLSL=`
+float hash13(vec3 p){p=fract(p*0.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}
+float noise3(vec3 p){
+  vec3 i=floor(p);vec3 f=fract(p);f=f*f*(3.0-2.0*f);
+  float n000=hash13(i);float n100=hash13(i+vec3(1.,0.,0.));
+  float n010=hash13(i+vec3(0.,1.,0.));float n110=hash13(i+vec3(1.,1.,0.));
+  float n001=hash13(i+vec3(0.,0.,1.));float n101=hash13(i+vec3(1.,0.,1.));
+  float n011=hash13(i+vec3(0.,1.,1.));float n111=hash13(i+vec3(1.,1.,1.));
+  return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y),
+             mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y),f.z);
+}
+float fbm(vec3 p){float a=0.5;float s=0.0;for(int i=0;i<4;i++){s+=a*noise3(p);p*=2.03;a*=0.5;}return s;}
+`;
 function glowTexture(){
   const c=document.createElement('canvas');c.width=c.height=128;
   const x=c.getContext('2d'),g=x.createRadialGradient(64,64,0,64,64,64);
   g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.25,'rgba(255,255,255,.55)');
   g.addColorStop(0.6,'rgba(255,255,255,.12)');g.addColorStop(1,'rgba(255,255,255,0)');
   x.fillStyle=g;x.fillRect(0,0,128,128);
-  const t=new THREE.CanvasTexture(c);return t;
+  return new THREE.CanvasTexture(c);
 }
 const GLOWTEX=glowTexture();
 const PALETTE=[0xffd27a,0x7ae2ff,0xb48cff,0x6dffc9,0xff7ad9,0xfff3d6];
 
-/* ================= track ================= */
+/* ================= nebula skybox ================= */
+const nebulaUniforms={uTime:{value:0}};
+{
+  const mat=new THREE.ShaderMaterial({
+    uniforms:nebulaUniforms,side:THREE.BackSide,depthWrite:false,fog:false,
+    vertexShader:'varying vec3 vDir;void main(){vDir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    fragmentShader:`
+      uniform float uTime;varying vec3 vDir;
+      ${NOISE_GLSL}
+      void main(){
+        vec3 d=normalize(vDir);
+        float n=fbm(d*2.5+vec3(0.0,uTime*0.008,uTime*0.005));
+        float m=fbm(d*5.0-vec3(uTime*0.006));
+        vec3 col=vec3(0.008,0.006,0.020);
+        col+=vec3(0.10,0.045,0.20)*smoothstep(0.35,0.8,n);
+        col+=vec3(0.22,0.10,0.045)*smoothstep(0.60,0.95,m)*smoothstep(0.30,0.70,n)*0.55;
+        col+=vec3(0.03,0.10,0.14)*smoothstep(0.55,0.9,fbm(d*3.5+vec3(9.0)))*0.5;
+        vec3 g=floor(d*230.0);
+        float h=hash13(g);
+        float star=step(0.9986,h)*(0.4+0.6*abs(sin(uTime*1.5+h*40.0)));
+        col+=vec3(0.85,0.9,1.0)*star*(0.35+0.65*smoothstep(0.25,0.75,n));
+        gl_FragColor=vec4(col,1.0);
+      }`
+  });
+  const sky=new THREE.Mesh(new THREE.SphereGeometry(3600,32,24),mat);
+  sky.renderOrder=-10;scene.add(sky);
+}
+
+/* ================= flight path (invisible) ================= */
 const PTS=[
   [0,0,0],[12,10,-30],[-12,22,-60],[10,34,-90],[-8,46,-115],[0,58,-140],
   [0,62,-155],[6,50,-175],[0,28,-195],[-4,8,-215],[0,-4,-235],[0,-6,-255],
@@ -172,34 +236,72 @@ const PTS=[
   [0,40,-800],[4,52,-845],[0,62,-890],[0,66,-930]
 ].map(p=>new THREE.Vector3(p[0],p[1],p[2]));
 const curve=new THREE.CatmullRomCurve3(PTS,false,'catmullrom',0.35);
-// (no visible track: the camera flies the rail invisibly, nothing in the way)
+
+/* ================= cluster materials ================= */
+function coreMaterial(color){
+  return new THREE.ShaderMaterial({
+    uniforms:{uColor:{value:new THREE.Color(color)},uFlash:{value:0}},
+    vertexShader:`
+      varying vec3 vN;varying vec3 vV;
+      void main(){
+        vec4 mv=modelViewMatrix*vec4(position,1.0);
+        vN=normalMatrix*normal;vV=-mv.xyz;
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      uniform vec3 uColor;uniform float uFlash;
+      varying vec3 vN;varying vec3 vV;
+      void main(){
+        vec3 n=normalize(vN);vec3 v=normalize(vV);
+        float fr=pow(1.0-abs(dot(n,v)),2.2);
+        vec3 col=uColor*0.22+uColor*fr*2.4;
+        col=mix(col,vec3(1.0),uFlash*0.75);
+        gl_FragColor=vec4(col,1.0);
+      }`
+  });
+}
+function threadMaterial(color){
+  return new THREE.ShaderMaterial({
+    uniforms:{uColor:{value:new THREE.Color(color)},uTime:{value:rng()*20},uFlash:{value:0}},
+    transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,
+    vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    fragmentShader:`
+      uniform vec3 uColor;uniform float uTime;uniform float uFlash;
+      varying vec2 vUv;
+      void main(){
+        float p=pow(0.5+0.5*sin((vUv.x*3.0-uTime*0.5)*6.28318),6.0);
+        vec3 col=uColor*(0.30+p*1.5+uFlash*1.6);
+        gl_FragColor=vec4(col,0.45+p*0.25);
+      }`
+  });
+}
 
 /* ================= clusters + threads ================= */
-const clusters=[],clusterMeshes=[];
-const coreGeo=new THREE.SphereGeometry(1,18,18);
+const clusters=[],clusterMeshes=[],threadMats=[];
+const coreGeo=new THREE.SphereGeometry(1,24,24);
 function addCluster(pos,color,scale){
   const grp=new THREE.Group();grp.position.copy(pos);
-  const core=new THREE.Mesh(coreGeo,new THREE.MeshBasicMaterial({color:color}));
+  const core=new THREE.Mesh(coreGeo,coreMaterial(color));
   core.scale.setScalar(scale);grp.add(core);
-  const sm=new THREE.SpriteMaterial({map:GLOWTEX,color:color,transparent:true,opacity:0.75,blending:THREE.AdditiveBlending,depthWrite:false});
-  const spr=new THREE.Sprite(sm);spr.scale.setScalar(scale*9);grp.add(spr);
-  // satellites
+  // layered glow: tight inner + wide halo
+  const inner=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOWTEX,color:color,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+  inner.scale.setScalar(scale*4.5);grp.add(inner);
+  const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOWTEX,color:color,transparent:true,opacity:0.30,blending:THREE.AdditiveBlending,depthWrite:false}));
+  halo.scale.setScalar(scale*11);grp.add(halo);
   const sats=new THREE.Group();
   const n=3+Math.floor(rng()*3);
   for(let i=0;i<n;i++){
-    const s=new THREE.Mesh(coreGeo,new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:0.85}));
-    const ss=scale*(0.18+rng()*0.22);s.scale.setScalar(ss);
-    const a=rng()*Math.PI*2,r=scale*(2.6+rng()*2.2);
-    s.position.set(Math.cos(a)*r,(rng()-0.5)*r*1.2,Math.sin(a)*r);
+    const s=new THREE.Mesh(coreGeo,new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:0.9}));
+    const ss=scale*(0.16+rng()*0.22);s.scale.setScalar(ss);
+    const a=rng()*Math.PI*2,r=scale*(2.6+rng()*2.4);
+    s.position.set(Math.cos(a)*r,(rng()-0.5)*r*1.3,Math.sin(a)*r);
     sats.add(s);
   }
-  grp.add(sats);
-  scene.add(grp);
-  const c={grp,core,spr,sats,color,scale,flash:0,threads:[],orbit:rng()*Math.PI*2,orbitSpd:0.15+rng()*0.3};
+  grp.add(sats);scene.add(grp);
+  const c={grp,core,inner,halo,sats,color,scale,flash:0,threads:[],orbit:rng()*Math.PI*2,orbitSpd:0.15+rng()*0.3};
   clusters.push(c);clusterMeshes.push(core);core.userData.cluster=c;
   return c;
 }
-// scatter clusters along the ride (skip tunnel band 0.70-0.85, dressed separately)
 {
   const tmp=new THREE.Vector3(),tan=new THREE.Vector3(),side=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
   let placed=0,guard=0;
@@ -210,37 +312,32 @@ function addCluster(pos,color,scale){
     side.crossVectors(tan,up).normalize();
     const off=(side.clone().multiplyScalar((rng()<0.5?-1:1)*(16+rng()*46)))
       .add(new THREE.Vector3(0,(rng()-0.35)*36,0));
-    const pos=tmp.clone().add(off);
-    // keep clear of the rail itself
-    addCluster(pos,PALETTE[Math.floor(rng()*PALETTE.length)],1.4+rng()*2.6);
+    addCluster(tmp.clone().add(off),PALETTE[Math.floor(rng()*PALETTE.length)],1.4+rng()*2.6);
     placed++;
   }
-  // threads: each cluster links to 2 nearest
-  const threadMats=[];
   clusters.forEach((c,i)=>{
     const dists=clusters.map((o,j)=>({j,d:o.grp.position.distanceToSquared(c.grp.position)}))
       .filter(o=>o.j!==i).sort((a,b)=>a.d-b.d).slice(0,2);
     dists.forEach(({j})=>{
-      if(j<i)return; // add each pair once
+      if(j<i)return;
       const o=clusters[j],a=c.grp.position,b=o.grp.position;
       const mid=a.clone().add(b).multiplyScalar(0.5);mid.y+=a.distanceTo(b)*0.12;
       const bc=new THREE.QuadraticBezierCurve3(a,mid,b);
-      const tg=new THREE.TubeGeometry(bc,14,0.14,4,false);
-      const col=new THREE.Color(c.color).lerp(new THREE.Color(o.color),0.5);
-      const tm=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.32,blending:THREE.AdditiveBlending,depthWrite:false});
-      const mesh=new THREE.Mesh(tg,tm);scene.add(mesh);
+      const tm=threadMaterial(new THREE.Color(c.color).lerp(new THREE.Color(o.color),0.5));
+      const mesh=new THREE.Mesh(new THREE.TubeGeometry(bc,16,0.16,5,false),tm);
+      scene.add(mesh);
       c.threads.push(tm);o.threads.push(tm);threadMats.push(tm);
     });
   });
 }
 /* thread tunnel (t 0.70-0.85) */
 {
-  const ringMat=new THREE.MeshBasicMaterial({color:0x7ae2ff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false});
+  const ringMat=new THREE.MeshBasicMaterial({color:0x7ae2ff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false});
   const tmp=new THREE.Vector3(),tan=new THREE.Vector3();
   let prev=null;
   for(let i=0;i<=10;i++){
     const t=0.70+i*0.015;curve.getPointAt(t,tmp);curve.getTangentAt(t,tan);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(15,0.35,6,40),ringMat);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(15,0.35,6,48),ringMat);
     ring.position.copy(tmp);
     ring.lookAt(tmp.clone().add(tan));
     scene.add(ring);
@@ -267,35 +364,63 @@ function addCluster(pos,color,scale){
     scene.add(s);
   }
 }
-/* marble silhouettes */
+/* marble silhouettes with veined shader */
 {
-  const mg=new THREE.IcosahedronGeometry(1,2);
+  const mg=new THREE.IcosahedronGeometry(1,3);
   const pos=mg.attributes.position;
   for(let i=0;i<pos.count;i++){
     const v=new THREE.Vector3().fromBufferAttribute(pos,i);
-    const n=1+0.35*Math.sin(v.x*3.1)*Math.cos(v.y*2.3+1)*Math.sin(v.z*2.7+2);
+    const n=1+0.32*Math.sin(v.x*3.1)*Math.cos(v.y*2.3+1)*Math.sin(v.z*2.7+2);
     v.multiplyScalar(n);pos.setXYZ(i,v.x,v.y,v.z);
   }
   mg.computeVertexNormals();
-  const mm=new THREE.MeshBasicMaterial({color:0x141824});
+  const mm=new THREE.ShaderMaterial({
+    uniforms:{},
+    vertexShader:`
+      varying vec3 vP;varying vec3 vN;varying vec3 vV;
+      void main(){
+        vP=position;
+        vec4 mv=modelViewMatrix*vec4(position,1.0);
+        vN=normalMatrix*normal;vV=-mv.xyz;
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      varying vec3 vP;varying vec3 vN;varying vec3 vV;
+      ${NOISE_GLSL}
+      void main(){
+        vec3 p=vP*0.055;
+        float w=fbm(p*2.0+vec3(fbm(p*3.0))*1.8);
+        float vein=1.0-smoothstep(0.0,0.055,abs(w-0.5));
+        float vein2=1.0-smoothstep(0.0,0.16,abs(w-0.5));
+        vec3 n=normalize(vN);vec3 v=normalize(vV);
+        float fr=pow(1.0-abs(dot(n,v)),3.0);
+        vec3 col=vec3(0.035,0.045,0.075);
+        col+=vec3(0.75,0.62,0.38)*vein*0.55;
+        col+=vec3(0.30,0.28,0.34)*vein2*0.25;
+        col+=vec3(0.35,0.45,0.65)*fr*0.5;
+        gl_FragColor=vec4(col,1.0);
+      }`
+  });
   [[60,20,-480,26],[-70,10,-560,34],[80,40,-700,22],[-60,50,-860,30],[40,70,-980,40]].forEach(([x,y,z,s])=>{
     const m=new THREE.Mesh(mg,mm);m.position.set(x,y,z);m.scale.setScalar(s);
     m.rotation.set(rng()*3,rng()*3,rng()*3);scene.add(m);
   });
 }
-/* drifting dust */
-let dust,dustVel;
-{
-  const N=700,pos=new Float32Array(N*3);dustVel=new Float32Array(N*3);
+/* drifting dust: near layer + far layer */
+let dustNear,dustFar;
+function makeDust(N,size,op,spread,yMax){
+  const pos=new Float32Array(N*3),vel=new Float32Array(N*3);
   for(let i=0;i<N;i++){
-    pos[i*3]=(rng()-0.5)*500;pos[i*3+1]=rng()*140-20;pos[i*3+2]=-rng()*1000+40;
-    dustVel[i*3]=(rng()-0.5)*1.2;dustVel[i*3+1]=(rng()-0.5)*0.8;dustVel[i*3+2]=(rng()-0.5)*1.2;
+    pos[i*3]=(rng()-0.5)*spread;pos[i*3+1]=rng()*yMax-20;pos[i*3+2]=-rng()*1000+40;
+    vel[i*3]=(rng()-0.5)*1.2;vel[i*3+1]=(rng()-0.5)*0.8;vel[i*3+2]=(rng()-0.5)*1.2;
   }
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-  dust=new THREE.Points(g,new THREE.PointsMaterial({map:GLOWTEX,color:0x9db8ff,size:1.6,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
-  scene.add(dust);
+  const p=new THREE.Points(g,new THREE.PointsMaterial({map:GLOWTEX,color:0x9db8ff,size:size,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
+  p.userData.vel=vel;scene.add(p);return p;
 }
-/* speed streaks (camera-local): the only speed cue now that the rail is gone */
+dustNear=makeDust(450,2.6,0.55,420,150);
+dustFar=makeDust(500,1.2,0.35,700,200);
+/* speed streaks (camera-local) */
 let streaks;
 {
   const N=140,pos=new Float32Array(N*3);
@@ -317,7 +442,7 @@ function spawnRing(pos,color){
 const SPEED_KEYS=[[0,0.002],[0.05,0.004],[0.15,0.0045],[0.20,0.011],[0.28,0.013],[0.35,0.011],[0.55,0.010],[0.62,0.004],[0.70,0.0035],[0.76,0.010],[0.85,0.009],[0.92,0.0035],[1,0.0015]];
 const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
 let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1;
-const lookP=new THREE.Vector3(), lookT=new THREE.Vector3(), tanV=new THREE.Vector3(), tan2=new THREE.Vector3(), upV=new THREE.Vector3();
+const lookP=new THREE.Vector3(), lookT=new THREE.Vector3(), tanV=new THREE.Vector3(), tan2=new THREE.Vector3();
 let yawT=0,pitchT=0,yaw=0,pitch=0,dragging=false,dragMoved=0,dragStart=0,sx=0,sy=0;
 
 const cvs=renderer.domElement;
@@ -349,21 +474,19 @@ function doPulse(px,py){
 const fadeEl=document.getElementById('fade'),titleEl=document.getElementById('title'),
       endEl=document.getElementById('end'),hudEl=document.getElementById('hud'),
       hintEl=document.getElementById('hint'),progEl=document.getElementById('progfill');
-let rides=0;
 function beginRide(){
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
-  riding=true;rt=0;curSeg=-1;rides++;
+  riding=true;rt=0;curSeg=-1;
   hudEl.classList.add('on');hintEl.classList.add('on');
   setTimeout(()=>hintEl.classList.remove('on'),9000);
   setChord(0,false);
 }
 document.getElementById('beginBtn').onclick=beginRide;
 document.getElementById('againBtn').onclick=beginRide;
-document.addEventListener('visibilitychange',()=>{if(document.hidden)paused=true;else paused=false;});
 let paused=false;
+document.addEventListener('visibilitychange',()=>{paused=document.hidden;});
 
-// pre-ride slow orbit vantage
 const orbitC=new THREE.Vector3(0,26,-120);
 function preRideCam(now){
   const a=now*0.00006;
@@ -371,66 +494,68 @@ function preRideCam(now){
   camera.lookAt(orbitC.x,orbitC.y-6,orbitC.z-60);
   camera.fov=60;camera.updateProjectionMatrix();
 }
+function driftDust(p,dt){
+  const dp=p.geometry.attributes.position,vel=p.userData.vel;
+  for(let i=0;i<dp.count;i++){
+    let y=dp.getY(i)+vel[i*3+1]*dt;
+    if(y>160)y=-20;if(y<-25)y=155;
+    dp.setXYZ(i,dp.getX(i)+vel[i*3]*dt,y,dp.getZ(i)+vel[i*3+2]*dt);
+  }
+  dp.needsUpdate=true;
+}
 
 /* ================= main loop ================= */
-let last=performance.now(),fpsAcc=0,fpsN=0,fpsT=0,degraded=false;
+let last=performance.now(),fpsAcc=0,fpsN=0,degraded=false;
 function frame(now){
   requestAnimationFrame(frame);
   let dt=Math.min((now-last)/1000,0.05);last=now;
   if(paused)return;
-
-  // ambient life: satellites orbit, dust drifts, flashes decay
   const tsec=now/1000;
+  nebulaUniforms.uTime.value=tsec;
+  for(const tm of threadMats)tm.uniforms.uTime.value=tsec;
+
   for(const c of clusters){
     c.sats.rotation.y=c.orbit+tsec*c.orbitSpd;
     if(c.flash>0){
       c.flash=Math.max(0,c.flash-dt*1.4);
       const f=1+c.flash*1.6;
-      c.spr.scale.setScalar(c.scale*9*f);
-      c.core.material.color.setHex(c.color).lerp(new THREE.Color(0xffffff),c.flash*0.7);
-      c.threads.forEach(m=>{m.opacity=0.32+c.flash*0.6;});
+      c.inner.scale.setScalar(c.scale*4.5*f);
+      c.halo.scale.setScalar(c.scale*11*f);
+      c.core.material.uniforms.uFlash.value=c.flash;
+      c.threads.forEach(m=>{m.uniforms.uFlash.value=c.flash;});
     }
   }
-  const dp=dust.geometry.attributes.position;
-  for(let i=0;i<dp.count;i++){
-    let x=dp.getX(i)+dustVel[i*3]*dt,y=dp.getY(i)+dustVel[i*3+1]*dt,z=dp.getZ(i)+dustVel[i*3+2]*dt;
-    if(y>150)y=-20;if(y<-25)y=145;
-    dp.setXYZ(i,x,y,z);
-  }
-  dp.needsUpdate=true;
+  driftDust(dustNear,dt);driftDust(dustFar,dt);
   for(let i=rings.length-1;i>=0;i--){
     const r=rings[i];r.t+=dt;
-    const s=1+r.t*34;r.m.scale.setScalar(s);r.m.material.opacity=Math.max(0,0.9-r.t*1.1);
+    r.m.scale.setScalar(1+r.t*34);r.m.material.opacity=Math.max(0,0.9-r.t*1.1);
     r.m.lookAt(camera.position);
     if(r.t>1){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
   }
 
-  if(!riding){preRideCam(now);streaks.material.opacity=0;renderer.render(scene,camera);return;}
+  if(!riding){preRideCam(now);streaks.material.opacity=0;composer.render();return;}
 
-  // advance ride
   const spd=smoothKeys(SPEED_KEYS,rt);
   rt=Math.min(1,rt+spd*dt);
   const seg=SEG_OF_T(rt);
   if(seg!==curSeg){curSeg=seg;setChord(seg,seg===3);}
-  // camera on rail
   curve.getPointAt(rt,lookP);curve.getPointAt(Math.min(1,rt+0.012),lookT);
   camera.position.copy(lookP);
+  // cinematic handheld drift
+  camera.position.x+=Math.sin(tsec*0.5)*0.7+Math.sin(tsec*1.31)*0.3;
+  camera.position.y+=Math.sin(tsec*0.42+2.0)*0.5;
   camera.up.set(0,1,0);camera.lookAt(lookT);
-  // banking from curvature
   curve.getTangentAt(rt,tanV);curve.getTangentAt(Math.min(1,rt+0.004),tan2);
   const cross=tanV.x*tan2.z-tanV.z*tan2.x;
   const targetRoll=clamp(-cross*260,-0.55,0.55);
   rollSm=lerp(rollSm,targetRoll,1-Math.pow(0.001,dt));
   camera.rotateZ(rollSm);
-  // look-around
   if(!dragging){yawT*=Math.pow(0.4,dt);pitchT*=Math.pow(0.4,dt);}
   yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
   camera.rotateY(yaw);camera.rotateX(pitch);
-  // FOV kick with speed
   const sNorm=clamp(spd/0.013,0,1);
   fovSm=lerp(fovSm,62+sNorm*22,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
-  // streaks stream past, harder with speed
   {
     const sp=streaks.geometry.attributes.position,vz=(12+sNorm*170)*dt;
     for(let i=0;i<sp.count;i++){
@@ -441,7 +566,6 @@ function frame(now){
     sp.needsUpdate=true;
     streaks.material.opacity=0.04+sNorm*0.5;
   }
-  // audio follows speed
   if(AC&&soundOn){
     whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.22,AC.currentTime,0.15);
     whooshFilter.frequency.setTargetAtTime(350+sNorm*1600,AC.currentTime,0.15);
@@ -455,14 +579,15 @@ function frame(now){
     if(AC){padGains.forEach(g=>g.gain.setTargetAtTime(0.0001,AC.currentTime,1.2));
       whooshGain.gain.setTargetAtTime(0,AC.currentTime,0.4);}
   }
-  renderer.render(scene,camera);
+  composer.render();
 
-  // adaptive quality: one step down if struggling
   if(!degraded){
     fpsAcc+=dt;fpsN++;
     if(fpsN>=140){
-      if(fpsAcc/fpsN>0.026){degraded=true;renderer.setPixelRatio(1);
-        dust.geometry.setDrawRange(0,350);}
+      if(fpsAcc/fpsN>0.026){
+        degraded=true;renderer.setPixelRatio(1);composer.setPixelRatio(1);
+        dustFar.visible=false;bloomPass.strength=0.6;
+      }
       fpsAcc=0;fpsN=0;
     }
   }
