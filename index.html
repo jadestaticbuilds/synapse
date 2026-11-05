@@ -540,8 +540,12 @@ function onOrient(e){
   const dB=e.beta-baseB;let dG=e.gamma-baseG;
   if(dG>180)dG-=360;if(dG<-180)dG+=360;
   const so=(((screen.orientation||{}).angle)||0)*Math.PI/180;
-  yawT=clamp(-(dG*Math.cos(so)+dB*Math.sin(so))*0.02,-1.0,1.0);
-  pitchT=clamp(-(-dG*Math.sin(so)+dB*Math.cos(so))*0.015,-0.55,0.55);
+  // NOTE (Nov 5): George found the textbook mapping mirrored on his S25 Ultra
+  // (turn left looked right, tilt felt flipped), so both signs are negated.
+  // The phone now works like a window, YouTube-360 style:
+  // turn left -> look left, tilt top away -> look up, tilt top toward you -> look down.
+  yawT=clamp((dG*Math.cos(so)+dB*Math.sin(so))*0.02,-1.0,1.0);
+  pitchT=clamp((-dG*Math.sin(so)+dB*Math.cos(so))*0.015,-0.55,0.55);
 }
 window.addEventListener('deviceorientation',onOrient);
 window.addEventListener('deviceorientationabsolute',onOrient);
