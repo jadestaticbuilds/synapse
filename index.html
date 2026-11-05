@@ -44,7 +44,7 @@ canvas{display:block;}
 <div id="hint">Drag to look around &middot; Tap a cluster to pulse it</div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>A roller-coaster ride through a neural mindscape. Three minutes through the clusters, the threads, and the quiet between them.</p>
+  <p>A flight through a neural mindscape. Three minutes drifting through the clusters, the threads, and the quiet between them.</p>
   <button class="btn" id="beginBtn">BEGIN THE RIDE</button>
 </div>
 <div class="screen hidden" id="end">
@@ -145,6 +145,7 @@ const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x04030a);
 scene.fog=new THREE.FogExp2(0x070512,0.0038);
 const camera=new THREE.PerspectiveCamera(64,innerWidth/innerHeight,0.5,4000);
+scene.add(camera);
 scene.add(new THREE.AmbientLight(0x404060,1.2));
 const dl=new THREE.DirectionalLight(0x8877ff,0.6);dl.position.set(50,100,50);scene.add(dl);
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
@@ -171,30 +172,7 @@ const PTS=[
   [0,40,-800],[4,52,-845],[0,62,-890],[0,66,-930]
 ].map(p=>new THREE.Vector3(p[0],p[1],p[2]));
 const curve=new THREE.CatmullRomCurve3(PTS,false,'catmullrom',0.35);
-const trackLen=curve.getLength();
-// rail
-{
-  const tube=new THREE.TubeGeometry(curve,700,0.55,6,false);
-  const mat=new THREE.MeshBasicMaterial({color:0x2a2438});
-  scene.add(new THREE.Mesh(tube,mat));
-  // glowing edge line riding just above the rail
-  const edge=new THREE.TubeGeometry(curve,700,0.12,4,false);
-  const emat=new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending});
-  const em=new THREE.Mesh(edge,emat);em.position.y=0.75;scene.add(em);
-}
-// ties (instanced) for speed sensation
-{
-  const g=new THREE.BoxGeometry(3.2,0.25,0.7);
-  const m=new THREE.MeshBasicMaterial({color:0x3a3049});
-  const N=340,inst=new THREE.InstancedMesh(g,m,N);
-  const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),S=new THREE.Vector3(1,1,1),P=new THREE.Vector3(),T=new THREE.Vector3();
-  for(let i=0;i<N;i++){
-    const t=i/(N-1);curve.getPointAt(t,P);curve.getTangentAt(t,T);
-    Q.setFromUnitVectors(new THREE.Vector3(0,0,1),T);
-    M.compose(new THREE.Vector3(P.x,P.y-0.7,P.z),Q,S);inst.setMatrixAt(i,M);
-  }
-  scene.add(inst);
-}
+// (no visible track: the camera flies the rail invisibly, nothing in the way)
 
 /* ================= clusters + threads ================= */
 const clusters=[],clusterMeshes=[];
@@ -317,6 +295,15 @@ let dust,dustVel;
   dust=new THREE.Points(g,new THREE.PointsMaterial({map:GLOWTEX,color:0x9db8ff,size:1.6,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
   scene.add(dust);
 }
+/* speed streaks (camera-local): the only speed cue now that the rail is gone */
+let streaks;
+{
+  const N=140,pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){pos[i*3]=(Math.random()-0.5)*60;pos[i*3+1]=(Math.random()-0.5)*40;pos[i*3+2]=-5-Math.random()*100;}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  streaks=new THREE.Points(g,new THREE.PointsMaterial({map:GLOWTEX,color:0xcfe0ff,size:1.1,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+  camera.add(streaks);
+}
 /* pulse rings pool */
 const rings=[];
 function spawnRing(pos,color){
@@ -418,7 +405,7 @@ function frame(now){
     if(r.t>1){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
   }
 
-  if(!riding){preRideCam(now);renderer.render(scene,camera);return;}
+  if(!riding){preRideCam(now);streaks.material.opacity=0;renderer.render(scene,camera);return;}
 
   // advance ride
   const spd=smoothKeys(SPEED_KEYS,rt);
@@ -443,6 +430,17 @@ function frame(now){
   const sNorm=clamp(spd/0.013,0,1);
   fovSm=lerp(fovSm,62+sNorm*22,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
+  // streaks stream past, harder with speed
+  {
+    const sp=streaks.geometry.attributes.position,vz=(12+sNorm*170)*dt;
+    for(let i=0;i<sp.count;i++){
+      let z=sp.getZ(i)+vz;
+      if(z>2){z-=107;sp.setX(i,(Math.random()-0.5)*60);sp.setY(i,(Math.random()-0.5)*40);}
+      sp.setZ(i,z);
+    }
+    sp.needsUpdate=true;
+    streaks.material.opacity=0.04+sNorm*0.5;
+  }
   // audio follows speed
   if(AC&&soundOn){
     whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.22,AC.currentTime,0.15);
