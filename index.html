@@ -138,7 +138,7 @@ function initAudio(){
   n.connect(whooshFilter);whooshFilter.connect(whooshGain);whooshGain.connect(master);n.start();
 }
 function setChord(idx,soft){
-  if(!AC)return;const t=AC.currentTime,ch=CHORDS[idx];
+  if(!AC)return;const t=AC.currentTime,ch=CHORDS[idx];curChord=idx;
   padVoices.forEach((v,i)=>{
     const f=m2f(ch.root+ch.iv[i%ch.iv.length]);
     v.g.gain.cancelScheduledValues(t);
@@ -162,6 +162,39 @@ function chime(){
     o.connect(g);g.connect(master);if(verb)g.connect(verb);o.start(t);o.stop(t+1.2);
   });
 }
+/* generative Rhodes melody: a sparse tune wandering over the pad.
+   Pentatonic random-walk phrases, one note every couple of seconds. */
+const MAJ_PENTA=[0,2,4,7,9],MIN_PENTA=[0,3,5,7,10];
+const CHORD_QUAL=[0,1,1,1,0,1]; // per CHORDS entry: 0=minor penta, 1=major penta
+let melTimer=null,melNext=0,melStep=3,curChord=0;
+function melNote(t,midi,vol){
+  const o1=AC.createOscillator();o1.type='sine';o1.frequency.value=m2f(midi);
+  const o2=AC.createOscillator();o2.type='triangle';o2.frequency.value=m2f(midi)*2.004;
+  const b=AC.createGain();b.gain.value=0.05;o2.connect(b);
+  const g=AC.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(vol,t+0.07);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+3.0);
+  o1.connect(g);b.connect(g);g.connect(master);g.connect(verb);
+  o1.start(t);o2.start(t);o1.stop(t+3.2);o2.stop(t+3.2);
+}
+function scheduleMelody(){
+  if(!AC||!riding||!soundOn)return;
+  const horizon=AC.currentTime+1.5;
+  while(melNext<horizon){
+    const ch=CHORDS[curChord],scale=CHORD_QUAL[curChord]?MAJ_PENTA:MIN_PENTA;
+    if(Math.random()>0.22){
+      const deg=((melStep%5)+5)%5,oct=Math.floor(melStep/5);
+      const midi=ch.root+12+scale[deg]+12*oct;
+      melNote(melNext,midi,0.085);
+      if(Math.random()<0.25)melNote(melNext+0.02,midi+12,0.03);
+      melStep=Math.max(0,Math.min(10,melStep+Math.floor(Math.random()*5)-2));
+    }
+    melNext+=[1.6,2.2,2.2,3.0,4.2][Math.floor(Math.random()*5)];
+  }
+}
+function startMelody(){stopMelody();if(!AC)return;melNext=AC.currentTime+1.5;melStep=3;melTimer=setInterval(scheduleMelody,300);}
+function stopMelody(){if(melTimer){clearInterval(melTimer);melTimer=null;}}
 document.getElementById('sndBtn').onclick=e=>{e.stopPropagation();soundOn=!soundOn;
   document.getElementById('sndBtn').style.opacity=soundOn?1:.4;
   if(master)master.gain.setTargetAtTime(soundOn?0.85:0,AC.currentTime,0.1);};
@@ -497,7 +530,7 @@ cvs.addEventListener('pointercancel',()=>{dragging=false;});
 /* gyroscope look: move the phone to look around, YouTube-360 style.
    Drag remains as the fallback on devices without motion sensors. */
 let hasOrient=false,baseB=0,baseG=0,lastBeta=0,lastGamma=0,lastTapT=0,lastTapX=0,lastTapY=0;
-window.addEventListener('deviceorientation',e=>{
+function onOrient(e){
   if(e.beta===null||e.gamma===null)return;
   lastBeta=e.beta;lastGamma=e.gamma;
   if(!hasOrient){
@@ -509,7 +542,9 @@ window.addEventListener('deviceorientation',e=>{
   const so=(((screen.orientation||{}).angle)||0)*Math.PI/180;
   yawT=clamp(-(dG*Math.cos(so)+dB*Math.sin(so))*0.02,-1.0,1.0);
   pitchT=clamp(-(-dG*Math.sin(so)+dB*Math.cos(so))*0.015,-0.55,0.55);
-});
+}
+window.addEventListener('deviceorientation',onOrient);
+window.addEventListener('deviceorientationabsolute',onOrient);
 
 const ray=new THREE.Raycaster();
 function doPulse(px,py){
@@ -534,7 +569,7 @@ function beginRide(){
   riding=true;rt=0;curSeg=-1;
   hudEl.classList.add('on');hintEl.classList.add('on');
   setTimeout(()=>hintEl.classList.remove('on'),9000);
-  setChord(0,false);
+  setChord(0,false);startMelody();
 }
 document.getElementById('beginBtn').onclick=beginRide;
 document.getElementById('againBtn').onclick=beginRide;
@@ -627,7 +662,7 @@ function frame(now){
   progEl.style.width=(rt*100).toFixed(1)+'%';
 
   if(rt>=1){
-    riding=false;hudEl.classList.remove('on');
+    riding=false;stopMelody();hudEl.classList.remove('on');
     fadeEl.style.opacity=1;
     setTimeout(()=>{endEl.classList.remove('hidden');fadeEl.style.opacity=0;},1300);
     if(AC){padVoices.forEach(v=>v.g.gain.setTargetAtTime(0.0001,AC.currentTime,1.2));
