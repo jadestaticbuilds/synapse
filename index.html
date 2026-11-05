@@ -282,7 +282,7 @@ function addCluster(pos,color,scale){
 {
   for(let i=0;i<170;i++){
     const m=new THREE.SpriteMaterial({map:GLOWTEX,color:PALETTE[Math.floor(rng()*PALETTE.length)],
-      transparent:true,opacity:0.5+rng()*0.4,blending:THREE.AdditiveBlending,depthWrite:false});
+      transparent:true,opacity:0.5+rng()*0.4,blending:THREE.AdditiveBlending,depthWrite:false,fog:false});
     const s=new THREE.Sprite(m);
     s.position.set((rng()-0.5)*900,20+rng()*220,-980-rng()*700);
     s.scale.setScalar(6+rng()*22);
