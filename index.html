@@ -377,7 +377,7 @@ function addCluster(pos,color,scale){
     sats.add(s);
   }
   grp.add(sats);scene.add(grp);
-  const c={grp,core,inner,halo,sats,color,scale,flash:0,threads:[],orbit:rng()*Math.PI*2,orbitSpd:0.15+rng()*0.3};
+  const c={grp,core,inner,halo,sats,color,scale,flash:0,threads:[],links:[],waveId:0,orbit:rng()*Math.PI*2,orbitSpd:0.15+rng()*0.3};
   clusters.push(c);clusterMeshes.push(core);core.userData.cluster=c;
   return c;
 }
@@ -406,12 +406,14 @@ function addCluster(pos,color,scale){
       const mesh=new THREE.Mesh(new THREE.TubeGeometry(bc,16,0.16,5,false),tm);
       scene.add(mesh);
       c.threads.push(tm);o.threads.push(tm);threadMats.push(tm);
+      c.links.push(o);o.links.push(c);
     });
   });
 }
 /* thread tunnel (t 0.70-0.85) */
 {
-  const ringMat=new THREE.MeshBasicMaterial({color:0x7ae2ff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false});
+  const ringMat=new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const ringMat2=new THREE.MeshBasicMaterial({color:0x7ae2ff,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
   const tmp=new THREE.Vector3(),tan=new THREE.Vector3();
   let prev=null;
   for(let i=0;i<=10;i++){
@@ -420,6 +422,10 @@ function addCluster(pos,color,scale){
     ring.position.copy(tmp);
     ring.lookAt(tmp.clone().add(tan));
     scene.add(ring);
+    const ring2=new THREE.Mesh(new THREE.TorusGeometry(22,0.3,6,48),ringMat2);
+    ring2.position.copy(tmp);
+    ring2.lookAt(tmp.clone().add(tan));
+    scene.add(ring2);
     if(prev){
       for(let k=0;k<8;k++){
         const a=k/8*Math.PI*2;
@@ -442,6 +448,25 @@ function addCluster(pos,color,scale){
     s.scale.setScalar(6+rng()*22);
     scene.add(s);
   }
+}
+/* finale: the Heart of the Mindscape — a giant glowing core the ride spirals toward */
+let heartCore,heartInner;const heartRings=[];
+{
+  heartCore=new THREE.Mesh(coreGeo,coreMaterial(0xffd27a));
+  heartCore.scale.setScalar(28);heartCore.position.set(0,42,-1010);scene.add(heartCore);
+  heartInner=new THREE.Mesh(coreGeo,new THREE.MeshBasicMaterial({color:0xfff2c0,fog:false}));
+  heartInner.scale.setScalar(13);heartInner.position.copy(heartCore.position);scene.add(heartInner);
+  [34,44,54].forEach((r,i)=>{
+    const sh=new THREE.Mesh(coreGeo,new THREE.MeshBasicMaterial({color:[0xffd27a,0xb48cff,0x7ae2ff][i],transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+    sh.scale.setScalar(r);sh.position.copy(heartCore.position);scene.add(sh);
+  });
+  [[44,0xffd27a,0.5],[54,0xb48cff,0.4],[64,0x7ae2ff,0.3]].forEach(([r,col,op])=>{
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.5,8,80),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+    ring.position.copy(heartCore.position);
+    ring.rotation.set(rng()*3,rng()*3,rng()*3);
+    scene.add(ring);heartRings.push(ring);
+  });
 }
 /* marble silhouettes with veined shader */
 {
@@ -499,6 +524,40 @@ function makeDust(N,size,op,spread,yMax){
 }
 dustNear=makeDust(450,2.6,0.55,420,150);
 dustFar=makeDust(500,1.2,0.35,700,200);
+/* light shafts: volumetric beams cutting through the cluster field */
+const shaftTime={value:0};
+const shafts=[];
+function shaftMaterial(color,phase){
+  return new THREE.ShaderMaterial({
+    uniforms:{uColor:{value:new THREE.Color(color)},uPhase:{value:phase},uTime:shaftTime},
+    transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false,
+    vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    fragmentShader:`
+      uniform vec3 uColor;uniform float uPhase;uniform float uTime;
+      varying vec2 vUv;
+      void main(){
+        float a=smoothstep(0.0,0.25,vUv.y)*smoothstep(1.0,0.55,vUv.y);
+        a*=0.10+0.04*sin(uTime*0.4+uPhase);
+        gl_FragColor=vec4(uColor*a,a);
+      }`
+  });
+}
+{
+  const tmp=new THREE.Vector3(),tan=new THREE.Vector3(),side=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
+  const cols=[0xffd27a,0x7ae2ff,0xb48cff];
+  for(let i=0;i<10;i++){
+    const tt=0.08+i*0.09;
+    curve.getPointAt(tt,tmp);curve.getTangentAt(tt,tan);
+    side.crossVectors(tan,up).normalize();
+    const dir=rng()<0.5?-1:1;
+    const off=side.clone().multiplyScalar(dir*(24+rng()*30));
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(1.2+rng()*1.5,4+rng()*3,200,12,1,true),shaftMaterial(cols[i%3],rng()*6.28));
+    m.position.copy(tmp).add(off);m.position.y=55+rng()*20;
+    m.rotation.z=(rng()-0.5)*0.12;
+    m.userData.tilt=m.rotation.z;m.userData.i=i;
+    scene.add(m);shafts.push(m);
+  }
+}
 /* speed streaks (camera-local) */
 let streaks;
 {
@@ -510,15 +569,15 @@ let streaks;
 }
 /* pulse rings pool */
 const rings=[];
-function spawnRing(pos,color){
+function spawnRing(pos,color,s){
   const m=new THREE.Mesh(new THREE.TorusGeometry(1,0.09,8,48),
     new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
   m.position.copy(pos);scene.add(m);
-  rings.push({m,t:0});
+  rings.push({m,t:0,s:s||1});
 }
 
 /* ================= ride ================= */
-const SPEED_KEYS=[[0,0.0025],[0.10,0.0048],[0.25,0.0058],[0.40,0.0062],[0.55,0.0058],[0.65,0.0042],[0.75,0.007],[0.85,0.0065],[0.92,0.004],[1,0.002]];
+const SPEED_KEYS=[[0,0.0025],[0.10,0.0048],[0.25,0.0058],[0.40,0.0062],[0.55,0.0058],[0.65,0.0042],[0.70,0.011],[0.80,0.0115],[0.88,0.007],[0.92,0.004],[1,0.002]];
 const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
 let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
 let fixedMode=false;
@@ -579,6 +638,13 @@ window.addEventListener('deviceorientation',e=>onOrient(e,false));
 window.addEventListener('deviceorientationabsolute',e=>onOrient(e,true));
 
 const projV=new THREE.Vector3(),camDir=new THREE.Vector3(),toC=new THREE.Vector3();
+/* chain-reaction waves: a tap ripples out along the threads, two hops deep */
+let waveSeq=0;const waves=[];
+function triggerWave(c0){
+  const id=++waveSeq;c0.waveId=id;
+  c0.links.forEach(l=>{if(l.waveId!==id){l.waveId=id;waves.push({c:l,hop:1,t:performance.now()+140});}});
+  c0.links.forEach(l=>l.links.forEach(m=>{if(m!==c0&&m.waveId!==id){m.waveId=id;waves.push({c:m,hop:2,t:performance.now()+280});}}));
+}
 function doPulse(px,py){
   // generous screen-space tap: nearest cluster within its glow radius
   camera.getWorldDirection(camDir);
@@ -593,7 +659,7 @@ function doPulse(px,py){
     if(d<r&&d<bestD){best=c;bestD=d;}
   }
   if(!best)return;
-  best.flash=1;spawnRing(best.grp.position,best.color);chime();
+  best.flash=1;spawnRing(best.grp.position,best.color);chime();triggerWave(best);
   if(!best.tapped){
     best.tapped=true;tappedCount++;updateBalls();
     best.halo.material.opacity=0.05;best.inner.material.opacity=0.35; // collected look
@@ -672,9 +738,32 @@ function frame(now){
     }
   }
   driftDust(dustNear,dt);driftDust(dustFar,dt);
+  // chain-reaction waves firing on schedule
+  {
+    const nowMs=performance.now();
+    for(let i=waves.length-1;i>=0;i--){
+      const w=waves[i];
+      if(nowMs>=w.t){
+        waves.splice(i,1);
+        w.c.flash=Math.max(w.c.flash,w.hop===1?0.7:0.45);
+        spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:0.45);
+        if(AC&&soundOn){
+          const d=Math.floor(Math.random()*5);
+          chimeNote(AC.currentTime,69+PENTA_DEG[d]+(w.hop===2?12:0),0.06);
+        }
+      }
+    }
+  }
+  // heart pulse + slow ring turns
+  heartCore.material.uniforms.uFlash.value=0.25+0.15*Math.sin(tsec*1.1);
+  heartInner.scale.setScalar(13*(1+0.06*Math.sin(tsec*1.1)));
+  heartRings.forEach((r,i)=>{r.rotation.x+=dt*(0.04+i*0.02);r.rotation.y+=dt*(0.03+i*0.015);});
+  // shafts breathe + sway
+  shaftTime.value=tsec;
+  shafts.forEach(m=>{m.rotation.z=m.userData.tilt+Math.sin(tsec*0.2+m.userData.i*1.7)*0.02;});
   for(let i=rings.length-1;i>=0;i--){
     const r=rings[i];r.t+=dt;
-    r.m.scale.setScalar(1+r.t*34);r.m.material.opacity=Math.max(0,0.9-r.t*1.1);
+    r.m.scale.setScalar((1+r.t*34)*(r.s||1));r.m.material.opacity=Math.max(0,0.9-r.t*1.1);
     r.m.lookAt(camera.position);
     if(r.t>1){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
   }
