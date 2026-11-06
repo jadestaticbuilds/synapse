@@ -172,6 +172,7 @@ function chimeNote(t,midi,vol){
     o.connect(g);g.connect(master);if(verb)g.connect(verb);o.start(t);o.stop(t+1.2);
   });
 }
+/* tap phrase: opening dyad, then a two-note tail — every note rolls its own octave */
 function chime(){
   if(!AC||!soundOn)return;const t=AC.currentTime;
   let d,o,key;
@@ -179,9 +180,13 @@ function chime(){
   lastDyad=key;
   const m1=57+12*o+PENTA_DEG[d];
   const d2=(d+3)%5, o2=o+(d+3>=5?1:0);
-  const m2=57+12*o2+PENTA_DEG[d2];
+  let m2=57+12*o2+PENTA_DEG[d2];if(m2>93)m2-=12;
   chimeNote(t,m1,0.15);
   chimeNote(t,m2,0.15);
+  for(let k=1;k<=2;k++){
+    const dd=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
+    chimeNote(t+k*0.13,57+12*oo+PENTA_DEG[dd],0.11);
+  }
 }
 /* generative Rhodes melody: a sparse tune wandering over the pad.
    Pentatonic random-walk phrases, one note every couple of seconds. */
@@ -277,7 +282,7 @@ function glowTexture(){
   return new THREE.CanvasTexture(c);
 }
 const GLOWTEX=glowTexture();
-const PALETTE=[0xffd27a,0x7ae2ff,0xb48cff,0x6dffc9,0xff7ad9,0xfff3d6];
+const PALETTE=[0xff2a3c,0xff7a00,0xffd400,0x2aff5a,0x00c8ff,0x3a5bff,0x9d2aff,0xff2ad4];
 
 /* ================= nebula skybox ================= */
 const nebulaUniforms={uTime:{value:0}};
@@ -544,7 +549,7 @@ function shaftMaterial(color,phase){
 }
 {
   const tmp=new THREE.Vector3(),tan=new THREE.Vector3(),side=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
-  const cols=[0xffd27a,0x7ae2ff,0xb48cff];
+  const cols=[0xff2a3c,0xffd400,0x2aff5a,0x00c8ff,0x9d2aff];
   for(let i=0;i<10;i++){
     const tt=0.08+i*0.09;
     curve.getPointAt(tt,tmp);curve.getTangentAt(tt,tan);
@@ -748,8 +753,8 @@ function frame(now){
         w.c.flash=Math.max(w.c.flash,w.hop===1?0.7:0.45);
         spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:0.45);
         if(AC&&soundOn){
-          const d=Math.floor(Math.random()*5);
-          chimeNote(AC.currentTime,69+PENTA_DEG[d]+(w.hop===2?12:0),0.06);
+          const d=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
+          chimeNote(AC.currentTime,57+12*oo+PENTA_DEG[d],0.06);
         }
       }
     }
