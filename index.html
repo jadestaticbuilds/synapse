@@ -508,88 +508,6 @@ let streaks;
   streaks=new THREE.Points(g,new THREE.PointsMaterial({map:GLOWTEX,color:0xcfe0ff,size:1.1,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
   camera.add(streaks);
 }
-/* ================= golden figure — the traveler =================
-   A stylized being of light flying just ahead of the camera, the
-   figure from the mindscape video. Abstract by design: no face, no
-   fingers, no realistic anatomy. Detail lives in the sculpted form,
-   the fresnel gold, the halo, the light gathered in the palms, and
-   the motion — never in realism. */
-const GOLD=0xffd27a;
-const goldMat=coreMaterial(GOLD);
-const goldBright=new THREE.MeshBasicMaterial({color:0xffe9b8});
-const goldShell=new THREE.MeshBasicMaterial({color:GOLD,transparent:true,opacity:0.14,blending:THREE.AdditiveBlending,depthWrite:false});
-const figure=new THREE.Group();
-let armL,armR,chestCore,halo,aura,trailPts;
-const motes=[];
-{
-  const cap=(r,l)=>new THREE.CapsuleGeometry(r,l,6,14);
-  // sculpted torso: lathe profile, shoulders to hips
-  const prof=[[0.30,-0.75],[0.38,-0.55],[0.30,-0.15],[0.40,0.30],[0.34,0.62],[0.16,0.80],[0.14,0.88]]
-    .map(p=>new THREE.Vector2(p[0],p[1]));
-  const torsoGeo=new THREE.LatheGeometry(prof,20);
-  const torso=new THREE.Mesh(torsoGeo,goldMat);figure.add(torso);
-  const shell=new THREE.Mesh(torsoGeo,goldShell);shell.scale.setScalar(1.07);figure.add(shell);
-  const shoulders=new THREE.Mesh(coreGeo,goldMat);
-  shoulders.scale.set(0.58,0.19,0.30);shoulders.position.y=0.62;figure.add(shoulders);
-  const head=new THREE.Mesh(coreGeo,goldMat);
-  head.scale.set(0.30,0.35,0.32);head.position.y=1.18;figure.add(head);
-  halo=new THREE.Mesh(new THREE.TorusGeometry(0.52,0.035,8,40),goldBright);
-  halo.position.set(0,1.30,-0.15);halo.rotation.x=0.12;figure.add(halo);
-  chestCore=new THREE.Mesh(new THREE.OctahedronGeometry(0.16),goldBright);
-  chestCore.position.set(0,0.15,0.30);figure.add(chestCore);
-  function makeArm(side){ // side -1 left, +1 right
-    const arm=new THREE.Group();arm.position.set(0.42*side,0.58,0);
-    arm.rotation.set(0.3,0,0.95*side);
-    const up=new THREE.Mesh(cap(0.10,0.42),goldMat);up.position.y=-0.31;arm.add(up);
-    const elb=new THREE.Mesh(coreGeo,goldMat);elb.scale.setScalar(0.10);elb.position.y=-0.58;arm.add(elb);
-    const fore=new THREE.Group();fore.position.y=-0.58;fore.rotation.x=-0.35;arm.add(fore);
-    const fa=new THREE.Mesh(cap(0.085,0.38),goldMat);fa.position.y=-0.26;fore.add(fa);
-    const hand=new THREE.Mesh(coreGeo,goldMat);hand.scale.setScalar(0.11);hand.position.y=-0.52;fore.add(hand);
-    const orb=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOWTEX,color:0xffe9b8,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
-    orb.scale.setScalar(0.55);orb.position.y=-0.55;fore.add(orb);
-    figure.add(arm);return arm;
-  }
-  armL=makeArm(-1);armR=makeArm(1);
-  function makeLeg(side){
-    const leg=new THREE.Group();leg.position.set(0.13*side,-0.68,0);
-    leg.rotation.x=0.5;
-    const th=new THREE.Mesh(cap(0.12,0.45),goldMat);th.position.y=-0.30;leg.add(th);
-    const knee=new THREE.Mesh(coreGeo,goldMat);knee.scale.setScalar(0.11);knee.position.y=-0.58;leg.add(knee);
-    const shin=new THREE.Group();shin.position.y=-0.58;shin.rotation.x=0.15;leg.add(shin);
-    const sh=new THREE.Mesh(cap(0.095,0.42),goldMat);sh.position.y=-0.28;shin.add(sh);
-    const foot=new THREE.Mesh(coreGeo,goldMat);foot.scale.set(0.11,0.055,0.18);foot.position.set(0,-0.55,-0.05);shin.add(foot);
-    figure.add(leg);return leg;
-  }
-  makeLeg(-1);makeLeg(1);
-  // energy wisps trailing off the lower body
-  const wispMat=new THREE.MeshBasicMaterial({color:GOLD,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false});
-  [[-0.2,0.5],[0,1.0],[0.2,0.5]].forEach(([x,s])=>{
-    const c=new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(x,-0.6,-0.1),
-      new THREE.Vector3(x*1.6,-0.8,-1.2),
-      new THREE.Vector3(x*2.0,-1.0-s*0.3,-2.2));
-    const w=new THREE.Mesh(new THREE.TubeGeometry(c,8,0.05*s,5,false),wispMat);
-    figure.add(w);
-  });
-  // aura: soft gold glow spilling around the figure
-  aura=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOWTEX,color:0xffc860,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false}));
-  aura.scale.setScalar(7);aura.position.set(0,0.2,-0.3);figure.add(aura);
-  // orbiting motes, like the cluster satellites
-  for(let i=0;i<5;i++){
-    const m=new THREE.Mesh(coreGeo,goldBright);m.scale.setScalar(0.06);
-    m.userData.ang=i/5*Math.PI*2;figure.add(m);motes.push(m);
-  }
-  // golden trail: dust streaming off the figure
-  const N=70,tp=new Float32Array(N*3);
-  for(let i=0;i<N;i++){tp[i*3]=(rng()-0.5)*1.0;tp[i*3+1]=(rng()-0.5)*3.0;tp[i*3+2]=-0.5-rng()*4.5;}
-  const tg=new THREE.BufferGeometry();tg.setAttribute('position',new THREE.BufferAttribute(tp,3));
-  trailPts=new THREE.Points(tg,new THREE.PointsMaterial({map:GLOWTEX,color:GOLD,size:0.35,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
-  figure.add(trailPts);
-  figure.scale.setScalar(0.85);
-  figure.visible=false;scene.add(figure);
-}
-const figP=new THREE.Vector3(),figT=new THREE.Vector3();
-
 /* pulse rings pool */
 const rings=[];
 function spawnRing(pos,color){
@@ -790,36 +708,6 @@ function frame(now){
       camera.rotateY(yaw);camera.rotateX(pitch);
     }
   }
-  // golden figure: rides the line just ahead of the camera, banking with the track
-  if(riding){
-    const fa=Math.min(1,rt+0.012),fb=Math.min(1,rt+0.03);
-    curve.getPointAt(fa,figP);curve.getPointAt(fb,figT);
-    figure.position.copy(figP);
-    figure.position.y-=1.8+Math.sin(tsec*0.8)*0.22;
-    figure.position.x+=Math.sin(tsec*0.5)*0.25;
-    figure.lookAt(figT);
-    figure.rotateZ(rollSm);
-    figure.rotateX(0.18);
-    figure.visible=true;
-    armL.rotation.z=-0.95+Math.sin(tsec*0.5)*0.07;
-    armR.rotation.z=0.95-Math.sin(tsec*0.5+0.6)*0.07;
-    chestCore.scale.setScalar(1+0.18*Math.sin(tsec*1.1));
-    chestCore.rotation.y+=dt*0.6;
-    halo.rotation.z+=dt*0.15;
-    aura.material.opacity=0.18+0.06*Math.sin(tsec*0.9);
-    for(const m of motes){
-      m.userData.ang+=dt*0.4;
-      const a=m.userData.ang;
-      m.position.set(Math.cos(a)*1.2,Math.sin(a*2.3)*0.9,Math.sin(a)*1.2);
-    }
-    const tp=trailPts.geometry.attributes.position;
-    for(let i=0;i<tp.count;i++){
-      let z=tp.getZ(i)-dt*1.4;
-      if(z<-5.5){z=-0.5;tp.setX(i,(rng()-0.5)*1.0);tp.setY(i,(rng()-0.5)*3.0);}
-      tp.setZ(i,z);
-    }
-    tp.needsUpdate=true;
-  }else figure.visible=false;
   // fixed camera: pure track view, nothing else touches it
   const sNorm=clamp(spd/0.010,0,1);
   fovSm=lerp(fovSm,62+sNorm*22,1-Math.pow(0.01,dt));
