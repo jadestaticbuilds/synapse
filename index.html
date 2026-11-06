@@ -97,12 +97,12 @@ document.addEventListener('touchend',e=>{const n=Date.now();if(n-lastTE<300)e.pr
 let AC=null, master=null, soundOn=true, verb=null;
 let padVoices=[], whooshGain=null, whooshFilter=null, droneOsc=null, droneGain=null;
 const CHORDS=[
-  {root:45,iv:[0,3,7,14]},   // Am9
-  {root:41,iv:[0,4,7,14]},   // Fmaj9
-  {root:48,iv:[0,4,7,14]},   // Cmaj9
-  {root:48,iv:[0,4,7,14]},   // Cmaj9 (breather, softer)
-  {root:50,iv:[0,3,7,14]},   // Dm9
-  {root:43,iv:[0,4,9,14]},   // G add9
+  {root:41,iv:[0,3,7,14]},   // Fm9
+  {root:37,iv:[0,4,7,14]},   // Dbmaj9
+  {root:44,iv:[0,4,7,14]},   // Abmaj9
+  {root:46,iv:[0,3,7,14]},   // Bbm9 (breather, softer)
+  {root:39,iv:[0,4,7,14]},   // Ebmaj9
+  {root:41,iv:[0,3,7,14]},   // Fm9 (finale)
 ];
 const m2f=m=>440*Math.pow(2,(m-69)/12);
 function makeIR(dur,decay){
@@ -161,7 +161,7 @@ function setChord(idx,soft){
   droneGain.gain.setTargetAtTime(soft?0.02:0.035,t,1.5);
 }
 // tap dyads: two pentatonic notes a fifth apart (3 scale steps), picked at random
-const PENTA_DEG=[0,3,5,7,10]; // A minor pentatonic semitone offsets
+const FMIN=[0,2,3,5,7,8,10]; // F natural minor semitone offsets
 let lastDyad=-1;
 function chimeNote(t,midi,vol){
   [['triangle',1,vol],['sine',2,vol*0.35]].forEach(([ty,mult,v])=>{
@@ -176,22 +176,21 @@ function chimeNote(t,midi,vol){
 function chime(){
   if(!AC||!soundOn)return;const t=AC.currentTime;
   let d,o,key;
-  do{ d=Math.floor(Math.random()*5); o=Math.floor(Math.random()*2); key=d+5*o; }while(key===lastDyad);
+  do{ d=Math.floor(Math.random()*7); o=Math.floor(Math.random()*2); key=d+7*o; }while(key===lastDyad);
   lastDyad=key;
-  const m1=57+12*o+PENTA_DEG[d];
-  const d2=(d+3)%5, o2=o+(d+3>=5?1:0);
-  let m2=57+12*o2+PENTA_DEG[d2];if(m2>93)m2-=12;
+  const m1=53+12*o+FMIN[d];
+  const d2=(d+4)%7, o2=o+(d+4>=7?1:0);
+  let m2=53+12*o2+FMIN[d2];if(m2>93)m2-=12;
   chimeNote(t,m1,0.15);
   chimeNote(t,m2,0.15);
   for(let k=1;k<=2;k++){
-    const dd=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
-    chimeNote(t+k*0.40,57+12*oo+PENTA_DEG[dd],0.11);
+    const dd=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
+    chimeNote(t+k*0.40,53+12*oo+FMIN[dd],0.11);
   }
 }
 /* generative Rhodes melody: a sparse tune wandering over the pad.
-   Pentatonic random-walk phrases, one note every couple of seconds. */
-const MAJ_PENTA=[0,2,4,7,9],MIN_PENTA=[0,3,5,7,10];
-const CHORD_QUAL=[0,1,1,1,0,1]; // per CHORDS entry: 0=minor penta, 1=major penta
+   F minor random-walk phrases, one note every couple of seconds. */
+/* melody walks the full F natural minor scale (7 notes, not just pentatonic) */
 let melTimer=null,melNext=0,melStep=3,curChord=0;
 function melNote(t,midi,vol){
   const o1=AC.createOscillator();o1.type='sine';o1.frequency.value=m2f(midi);
@@ -208,13 +207,12 @@ function scheduleMelody(){
   if(!AC||!riding||!soundOn)return;
   const horizon=AC.currentTime+1.5;
   while(melNext<horizon){
-    const ch=CHORDS[curChord],scale=CHORD_QUAL[curChord]?MAJ_PENTA:MIN_PENTA;
     if(Math.random()>0.22){
-      const deg=((melStep%5)+5)%5,oct=Math.floor(melStep/5);
-      const midi=ch.root+12+scale[deg]+12*oct;
+      const deg=((melStep%7)+7)%7,oct=Math.floor(melStep/7);
+      const midi=53+FMIN[deg]+12*oct;
       melNote(melNext,midi,0.085);
       if(Math.random()<0.25)melNote(melNext+0.02,midi+12,0.03);
-      melStep=Math.max(0,Math.min(10,melStep+Math.floor(Math.random()*5)-2));
+      melStep=Math.max(0,Math.min(13,melStep+Math.floor(Math.random()*5)-2));
     }
     melNext+=[1.6,2.2,2.2,3.0,4.2][Math.floor(Math.random()*5)];
   }
@@ -753,8 +751,8 @@ function frame(now){
         w.c.flash=Math.max(w.c.flash,w.hop===1?0.7:0.45);
         spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:0.45);
         if(AC&&soundOn){
-          const d=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
-          chimeNote(AC.currentTime,57+12*oo+PENTA_DEG[d],0.06);
+          const d=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
+          chimeNote(AC.currentTime,53+12*oo+FMIN[d],0.06);
         }
       }
     }
