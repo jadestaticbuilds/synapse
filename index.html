@@ -185,7 +185,7 @@ function chime(){
   chimeNote(t,m2,0.15);
   for(let k=1;k<=2;k++){
     const dd=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
-    chimeNote(t+k*0.24,57+12*oo+PENTA_DEG[dd],0.11);
+    chimeNote(t+k*0.40,57+12*oo+PENTA_DEG[dd],0.11);
   }
 }
 /* generative Rhodes melody: a sparse tune wandering over the pad.
@@ -647,8 +647,8 @@ const projV=new THREE.Vector3(),camDir=new THREE.Vector3(),toC=new THREE.Vector3
 let waveSeq=0;const waves=[];
 function triggerWave(c0){
   const id=++waveSeq;c0.waveId=id;
-  c0.links.forEach(l=>{if(l.waveId!==id){l.waveId=id;waves.push({c:l,hop:1,t:performance.now()+260});}});
-  c0.links.forEach(l=>l.links.forEach(m=>{if(m!==c0&&m.waveId!==id){m.waveId=id;waves.push({c:m,hop:2,t:performance.now()+520});}}));
+  c0.links.forEach(l=>{if(l.waveId!==id){l.waveId=id;waves.push({c:l,hop:1,t:performance.now()+400});}});
+  c0.links.forEach(l=>l.links.forEach(m=>{if(m!==c0&&m.waveId!==id){m.waveId=id;waves.push({c:m,hop:2,t:performance.now()+800});}}));
 }
 function doPulse(px,py){
   // generous screen-space tap: nearest cluster within its glow radius
