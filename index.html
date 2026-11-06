@@ -94,7 +94,7 @@ let lastTE=0;
 document.addEventListener('touchend',e=>{const n=Date.now();if(n-lastTE<300)e.preventDefault();lastTE=n;},{passive:false});
 
 /* ================= audio ================= */
-let AC=null, master=null, soundOn=true, verb=null;
+let AC=null, master=null, soundOn=true, verb=null, percNoise=null;
 let padVoices=[], whooshGain=null, whooshFilter=null, droneOsc=null, droneGain=null;
 const CHORDS=[
   {root:29,iv:[0,3,7,14]},   // Fm9
@@ -146,6 +146,9 @@ function initAudio(){
   whooshFilter=AC.createBiquadFilter();whooshFilter.type='bandpass';whooshFilter.frequency.value=500;whooshFilter.Q.value=0.8;
   whooshGain=AC.createGain();whooshGain.gain.value=0;
   n.connect(whooshFilter);whooshFilter.connect(whooshGain);whooshGain.connect(master);n.start();
+  // percussion noise buffer (soft shaker ticks)
+  percNoise=AC.createBuffer(1,Math.floor(AC.sampleRate*0.1),AC.sampleRate);
+  {const pd=percNoise.getChannelData(0);for(let i=0;i<pd.length;i++)pd[i]=Math.random()*2-1;}
 }
 function setChord(idx,soft){
   if(!AC)return;const t=AC.currentTime,ch=CHORDS[idx];curChord=idx;
@@ -219,6 +222,38 @@ function scheduleMelody(){
 }
 function startMelody(){stopMelody();if(!AC)return;melNext=AC.currentTime+1.5;melStep=3;melTimer=setInterval(scheduleMelody,300);}
 function stopMelody(){if(melTimer){clearInterval(melTimer);melTimer=null;}}
+/* soft low percussion: a heartbeat kick + shaker tick, one beat per second, very quiet */
+let percTimer=null,percNext=0,percBeat=0;
+function percKick(t){
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sine';
+  o.frequency.setValueAtTime(110,t);o.frequency.exponentialRampToValueAtTime(45,t+0.18);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(0.06,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+  o.connect(g);g.connect(master);g.connect(verb);
+  o.start(t);o.stop(t+0.3);
+}
+function percTick(t){
+  const n=AC.createBufferSource();n.buffer=percNoise;
+  const f=AC.createBiquadFilter();f.type='highpass';f.frequency.value=6000;
+  const g=AC.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(0.025,t+0.005);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+  n.connect(f);f.connect(g);g.connect(master);
+  n.start(t);n.stop(t+0.08);
+}
+function schedulePerc(){
+  if(!AC||!riding||!soundOn)return;
+  const horizon=AC.currentTime+1.0;
+  while(percNext<horizon){
+    if(percBeat%2===0)percKick(percNext);else percTick(percNext);
+    percBeat++;percNext+=1.0;
+  }
+}
+function startPerc(){stopPerc();if(!AC)return;percNext=AC.currentTime+0.5;percBeat=0;percTimer=setInterval(schedulePerc,250);}
+function stopPerc(){if(percTimer){clearInterval(percTimer);percTimer=null;}}
 document.getElementById('sndBtn').onclick=e=>{e.stopPropagation();soundOn=!soundOn;
   document.getElementById('sndBtn').style.opacity=soundOn?1:.4;
   if(master)master.gain.setTargetAtTime(soundOn?0.85:0,AC.currentTime,0.1);};
@@ -280,7 +315,7 @@ function glowTexture(){
   return new THREE.CanvasTexture(c);
 }
 const GLOWTEX=glowTexture();
-const PALETTE=[0xff2a3c,0xff7a00,0xffd400,0x2aff5a,0x00c8ff,0x3a5bff,0x9d2aff,0xff2ad4];
+const PALETTE=[0xffd27a,0x7ae2ff,0xb48cff,0x6dffc9,0xff7ad9,0xfff3d6];
 
 /* ================= nebula skybox ================= */
 const nebulaUniforms={uTime:{value:0}};
@@ -547,7 +582,7 @@ function shaftMaterial(color,phase){
 }
 {
   const tmp=new THREE.Vector3(),tan=new THREE.Vector3(),side=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
-  const cols=[0xff2a3c,0xffd400,0x2aff5a,0x00c8ff,0x9d2aff];
+  const cols=[0xffd27a,0x7ae2ff,0xb48cff];
   for(let i=0;i<10;i++){
     const tt=0.08+i*0.09;
     curve.getPointAt(tt,tmp);curve.getTangentAt(tt,tan);
@@ -695,7 +730,7 @@ function beginRide(){
   hudEl.classList.add('on');hintEl.classList.add('on');
   hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap a cluster to pulse it';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
-  setChord(0,false);startMelody();
+  setChord(0,false);startMelody();startPerc();
 }
 document.getElementById('beginBtn').onclick=beginRide;
 document.getElementById('againBtn').onclick=beginRide;
@@ -815,13 +850,13 @@ function frame(now){
     streaks.material.opacity=0.04+sNorm*0.5;
   }
   if(AC&&soundOn){
-    whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.12,AC.currentTime,0.15);
+    whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.05,AC.currentTime,0.15);
     whooshFilter.frequency.setTargetAtTime(350+sNorm*1600,AC.currentTime,0.15);
   }
   progEl.style.width=(rt*100).toFixed(1)+'%';
 
   if(rt>=1){
-    riding=false;stopMelody();hudEl.classList.remove('on');
+    riding=false;stopMelody();stopPerc();hudEl.classList.remove('on');
     if(fixedMode)endText.textContent='You tapped '+tappedCount+' of '+clusters.length+' sound balls.';
     else endText.textContent='The threads settle. The clusters keep their light.';
     fadeEl.style.opacity=1;
