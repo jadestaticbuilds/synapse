@@ -54,7 +54,7 @@ canvas{display:block;}
 <div id="hint">Drag to look around &middot; Tap a cluster to pulse it</div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>A flight along the neural line. Three minutes drifting through the clusters, the threads, and the quiet between them.</p>
+  <p>A flight along the neural line. Drifting through the clusters, the threads, and the quiet between them.</p>
   <div id="modeRow">
     <button class="modeBtn on" id="modeLook">LOOK AROUND</button>
     <button class="modeBtn" id="modeFixed">FIXED CAMERA</button>
@@ -580,7 +580,7 @@ function spawnRing(pos,color,s){
 }
 
 /* ================= ride ================= */
-const SPEED_KEYS=[[0,0.0025],[0.10,0.0048],[0.25,0.0058],[0.40,0.0062],[0.55,0.0058],[0.65,0.0042],[0.70,0.011],[0.80,0.0115],[0.88,0.007],[0.92,0.004],[1,0.002]];
+const SPEED_KEYS=[[0,0.003],[0.10,0.0058],[0.25,0.007],[0.40,0.0074],[0.55,0.007],[0.65,0.005],[0.70,0.0132],[0.80,0.0138],[0.88,0.0084],[0.92,0.0048],[1,0.0024]];
 const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
 let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
 let fixedMode=false;
