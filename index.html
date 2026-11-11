@@ -31,6 +31,7 @@ canvas{display:block;}
 #sndBtn{position:fixed;top:26px;right:16px;z-index:20;pointer-events:auto;cursor:pointer;width:46px;height:46px;border-radius:12px;
   border:1px solid rgba(255,255,255,.25);background:rgba(4,3,10,.6);color:#ffd27a;font-size:19px;}
 #fade{position:fixed;inset:0;background:#04030a;z-index:9;opacity:1;transition:opacity 1.2s;pointer-events:none;}
+#chargeRing{position:fixed;width:64px;height:64px;border:2px solid rgba(255,210,122,0);border-radius:50%;transform:translate(-50%,-50%) scale(.6);pointer-events:none;z-index:6;}
 #hint{position:fixed;bottom:26px;left:0;right:0;text-align:center;z-index:5;color:#b9aee0;font-size:13px;opacity:0;transition:opacity 1s;pointer-events:none;}
 #hint.on{opacity:.85;}
 #balls{text-align:center;color:#ffd27a;font-size:13px;letter-spacing:2px;margin-top:8px;display:none;}
@@ -52,6 +53,7 @@ canvas{display:block;}
 <div id="hud"><div id="prog"><div id="progfill"></div></div><div id="balls"></div></div>
 <button id="sndBtn" aria-label="Toggle sound">&#9834;</button>
 <div id="hint">Drag to look around &middot; Tap a cluster to pulse it</div>
+<div id="chargeRing"></div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
   <p>A flight along the neural line. Drifting through the clusters, the threads, and the quiet between them.</p>
@@ -621,9 +623,13 @@ let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
 let fixedMode=false;
 const lookP=new THREE.Vector3(), lookT=new THREE.Vector3(), tanV=new THREE.Vector3(), tan2=new THREE.Vector3();
 let yawT=0,pitchT=0,yaw=0,pitch=0,dragging=false,dragMoved=0,dragStart=0,sx=0,sy=0;
+let chargeT0=0,chargeX=0,chargeY=0,charging=false;
+const chargeEl=document.getElementById('chargeRing');
 
 const cvs=renderer.domElement;
-cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);});
+cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);
+  if(riding&&!fixedMode){charging=true;chargeT0=performance.now();chargeX=e.clientX;chargeY=e.clientY;
+    chargeEl.style.left=chargeX+'px';chargeEl.style.top=chargeY+'px';chargeEl.style.borderColor='rgba(255,210,122,0)';}});
 cvs.addEventListener('pointermove',e=>{
   if(!dragging)return;
   const dx=e.clientX-sx,dy=e.clientY-sy;dragMoved+=Math.abs(dx)+Math.abs(dy);
@@ -632,6 +638,8 @@ cvs.addEventListener('pointermove',e=>{
 });
 cvs.addEventListener('pointerup',e=>{
   dragging=false;
+  if(charging){charging=false;chargeEl.style.borderColor='rgba(255,210,122,0)';
+    if(riding&&!fixedMode&&performance.now()-chargeT0>=450&&dragMoved<24){doPulse(e.clientX,e.clientY,true);return;}}
   const dt=performance.now()-dragStart;
   if(dragMoved<14&&dt<350&&riding){
     const nowT=performance.now();
@@ -644,7 +652,7 @@ cvs.addEventListener('pointerup',e=>{
     }
   }
 });
-cvs.addEventListener('pointercancel',()=>{dragging=false;});
+cvs.addEventListener('pointercancel',()=>{dragging=false;charging=false;chargeEl.style.borderColor='rgba(255,210,122,0)';});
 /* full 360-degree head tracking: the phone is a window into the world.
    Relative rotation from the pose at ride start (double-tap recenters).
    No clamps, no drift-back: turn all the way around and the view follows. */
@@ -667,7 +675,7 @@ function onOrient(e,isAbs){
   if(!baseDQ){
     baseDQ=q.clone();qRel.identity();qRelS.identity();
     if(!headActive){headActive=true;
-      if(!fixedMode)hintEl.innerHTML='Move your phone to look around &middot; Tap a cluster to pulse it &middot; Double-tap to recenter';}
+      if(!fixedMode)hintEl.innerHTML='Move your phone to look around &middot; Tap to pulse &middot; Hold to surge &middot; Double-tap to recenter';}
   }else{
     qRel.copy(q).multiply(tmpQ.copy(baseDQ).invert());
   }
@@ -678,12 +686,17 @@ window.addEventListener('deviceorientationabsolute',e=>onOrient(e,true));
 const projV=new THREE.Vector3(),camDir=new THREE.Vector3(),toC=new THREE.Vector3();
 /* chain-reaction waves: a tap ripples out along the threads, two hops deep */
 let waveSeq=0;const waves=[];
-function triggerWave(c0){
+function triggerWave(c0,hops){
+  hops=hops||2;
   const id=++waveSeq;c0.waveId=id;
-  c0.links.forEach(l=>{if(l.waveId!==id){l.waveId=id;waves.push({c:l,hop:1,t:performance.now()+400});}});
-  c0.links.forEach(l=>l.links.forEach(m=>{if(m!==c0&&m.waveId!==id){m.waveId=id;waves.push({c:m,hop:2,t:performance.now()+800});}}));
+  let frontier=[c0];
+  for(let h=1;h<=hops;h++){
+    const next=[];
+    frontier.forEach(c=>c.links.forEach(l=>{if(l.waveId!==id){l.waveId=id;waves.push({c:l,hop:h,t:performance.now()+400*h});next.push(l);}}));
+    frontier=next;
+  }
 }
-function doPulse(px,py){
+function doPulse(px,py,surge){
   // generous screen-space tap: nearest cluster within its glow radius
   camera.getWorldDirection(camDir);
   let best=null,bestD=1e9;
@@ -697,10 +710,16 @@ function doPulse(px,py){
     if(d<r&&d<bestD){best=c;bestD=d;}
   }
   if(!best)return;
-  best.flash=1;spawnRing(best.grp.position,best.color);chime();triggerWave(best);
+  let onBeat=false;
+  if(AC&&soundOn&&percNext>0){const tNow=AC.currentTime;
+    if(percNext-tNow<2.5){const ph=((tNow-percNext)%1+1)%1;onBeat=Math.min(ph,1-ph)<=0.14;}}
+  best.flash=1;spawnRing(best.grp.position,onBeat?0xffd27a:best.color,surge?1.35:1);chime();
+  triggerWave(best,(surge||onBeat)?3:2);
+  if(surge&&navigator.vibrate)navigator.vibrate(18);
   if(!best.tapped){
     best.tapped=true;tappedCount++;updateBalls();
-    best.halo.material.opacity=0.05;best.inner.material.opacity=0.35; // collected look
+    if(fixedMode){best.halo.material.opacity=0.05;best.inner.material.opacity=0.35;} // collected look
+    else{best.halo.material.opacity=0.34;best.inner.material.opacity=0.85;} // lit trail: stays glowing behind you
   }
 }
 function updateBalls(){ballsEl.textContent='Sound balls  '+tappedCount+' / '+clusters.length;}
@@ -728,7 +747,7 @@ function beginRide(){
   clusters.forEach(c=>{c.tapped=false;c.halo.material.opacity=0.18;c.inner.material.opacity=0.6;});
   updateBalls();ballsEl.style.display=fixedMode?'block':'none';
   hudEl.classList.add('on');hintEl.classList.add('on');
-  hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap a cluster to pulse it';
+  hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap to pulse &middot; Hold to surge';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
   if(!fixedMode)setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap a cluster to pulse it';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
   setChord(0,false);startMelody();startPerc();
@@ -784,8 +803,8 @@ function frame(now){
       const w=waves[i];
       if(nowMs>=w.t){
         waves.splice(i,1);
-        w.c.flash=Math.max(w.c.flash,w.hop===1?0.7:0.45);
-        spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:0.45);
+        w.c.flash=Math.max(w.c.flash,w.hop===1?0.7:w.hop===2?0.45:0.3);
+        spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:w.hop===2?0.45:0.35);
         if(AC&&soundOn){
           const d=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
           chimeNote(AC.currentTime,41+12*oo+FMIN[d],0.06);
@@ -807,6 +826,9 @@ function frame(now){
     if(r.t>1){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
   }
 
+  if(charging){const pr=Math.min(1,(performance.now()-chargeT0)/450);
+    chargeEl.style.transform='translate(-50%,-50%) scale('+(0.6+0.55*pr)+')';
+    chargeEl.style.borderColor='rgba(255,210,122,'+(0.15+0.75*pr)+')';}
   if(!riding){preRideCam(now);streaks.material.opacity=0;composer.render();return;}
 
   const spd=smoothKeys(SPEED_KEYS,rt);
