@@ -627,7 +627,7 @@ cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=perfo
 cvs.addEventListener('pointermove',e=>{
   if(!dragging)return;
   const dx=e.clientX-sx,dy=e.clientY-sy;dragMoved+=Math.abs(dx)+Math.abs(dy);
-  if(!headActive&&!fixedMode){yawT=clamp(yawT-dx*0.0035,-1.0,1.0);pitchT=clamp(pitchT-dy*0.003,-0.55,0.55);}
+  if(!headActive&&!fixedMode){yawT=clamp(yawT-dx*0.0035,-2.6,2.6);pitchT=clamp(pitchT-dy*0.003,-1.15,1.15);}
   sx=e.clientX;sy=e.clientY;
 });
 cvs.addEventListener('pointerup',e=>{
@@ -730,6 +730,7 @@ function beginRide(){
   hudEl.classList.add('on');hintEl.classList.add('on');
   hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap a cluster to pulse it';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
+  if(!fixedMode)setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap a cluster to pulse it';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
   setChord(0,false);startMelody();startPerc();
 }
 document.getElementById('beginBtn').onclick=beginRide;
@@ -828,9 +829,8 @@ function frame(now){
       // unrestricted 360 look: head-relative rotation applied to the track view
       qRelS.slerp(qRel,1-Math.pow(0.000001,dt));
       tmpQ.copy(camera.quaternion);
-      camera.quaternion.copy(qRelS).multiply(tmpQ);
+      camera.quaternion.copy(tmpQ).multiply(qRelS); // head delta in camera-local frame, so turns stay true as the track bends
     }else{
-      if(!dragging){yawT*=Math.pow(0.4,dt);pitchT*=Math.pow(0.4,dt);}
       yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
       camera.rotateY(yaw);camera.rotateX(pitch);
     }
