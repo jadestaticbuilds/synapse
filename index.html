@@ -426,14 +426,14 @@ function addCluster(pos,color,scale){
     sats.add(s);
   }
   const dPos=[],dCol=[],cCol=new THREE.Color(color);
-  (function grow(o,d,len,dep){
+  const grow=(o,d,len,dep)=>{
     const e=o.clone().addScaledVector(d,len),f0=0.35+0.65*(dep/3);
     dPos.push(o.x,o.y,o.z,e.x,e.y,e.z);
     dCol.push(cCol.r*f0,cCol.g*f0,cCol.b*f0,cCol.r*f0*0.35,cCol.g*f0*0.35,cCol.b*f0*0.35);
     if(dep<=0)return;
     const nB=2+(rng()<0.35?1:0);
     for(let i=0;i<nB;i++){const nd=d.clone();nd.x+=(rng()-0.5)*1.15;nd.y+=(rng()-0.5)*1.15;nd.z+=(rng()-0.5)*1.15;nd.normalize();grow(e,nd,len*0.64,dep-1);}
-  });
+  };
   const dZero=new THREE.Vector3();
   for(let i=0,nL=5+Math.floor(rng()*3);i<nL;i++){
     const d=new THREE.Vector3(rng()-0.5,rng()-0.5,rng()-0.5).normalize();
