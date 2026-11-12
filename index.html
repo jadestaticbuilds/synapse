@@ -56,7 +56,7 @@ canvas{display:block;}
 <div id="chargeRing"></div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>Drift the mindscape. Tap the gold-ringed ball on the beat, and the Heart will pull you in.</p>
+  <p>Roam the mindscape. Drag to look, hold two fingers to dive deeper, and tap the gold-ringed ball on the beat.</p>
   <button class="btn" id="beginBtn">BEGIN THE DRIFT</button>
 </div>
 <div class="screen hidden" id="end">
@@ -669,7 +669,7 @@ function spawnRing(pos,color,s){
 let riding=false, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
 let fovKick=0,whooshKick=0,ambT=3;
 /* ================= drift ================= */
-const DRIFT_BASE=2.4,DRIFT_PER_STREAK=0.9,DRIFT_STREAK_CAP=9,DRIFT_IMPULSE=3.5,DRIFT_SURGE_CAP=12,DRIFT_GRAV=4;
+const DRIFT_BASE=2.4,DRIFT_PER_STREAK=0.9,DRIFT_STREAK_CAP=9,DRIFT_IMPULSE=3.5,DRIFT_SURGE_CAP=12,DRIFT_GRAV=4,DRIFT_THRUST=11;
 const driftPos=new THREE.Vector3(0,12,26),driftVel=new THREE.Vector3(),qBase0=new THREE.Quaternion();
 const heartDir=new THREE.Vector3(),aimDir=new THREE.Vector3(),moveDir=new THREE.Vector3(),tmpV1=new THREE.Vector3(),tmpV2=new THREE.Vector3();
 let streak=0,bestStreak=0,surgeV=0,beatIdx=0,driftBeat0=0,beatInit=false,driftStartDist=1036,curZone=-1;
@@ -680,32 +680,34 @@ let chargeT0=0,chargeX=0,chargeY=0,charging=false;
 const chargeEl=document.getElementById('chargeRing');
 
 const cvs=renderer.domElement;
-cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);
+const activePtrs=new Set();let multiTouch=false,dragId=null,syncDrag=false;
+let thrustKey=false;
+window.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='KeyW'||e.code==='ArrowUp'){thrustKey=true;if(e.code==='Space')e.preventDefault();}});
+window.addEventListener('keyup',e=>{if(e.code==='Space'||e.code==='KeyW'||e.code==='ArrowUp')thrustKey=false;});
+cvs.addEventListener('pointerdown',e=>{activePtrs.add(e.pointerId);if(activePtrs.size>=2)multiTouch=true;
+  if(dragId===null)dragId=e.pointerId;
+  dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);
   if(riding&&!fixedMode){charging=true;chargeT0=performance.now();chargeX=e.clientX;chargeY=e.clientY;
     chargeEl.style.left=chargeX+'px';chargeEl.style.top=chargeY+'px';chargeEl.style.borderColor='rgba(255,210,122,0)';}});
 cvs.addEventListener('pointermove',e=>{
-  if(!dragging)return;
+  if(!dragging||e.pointerId!==dragId)return;
+  if(syncDrag){sx=e.clientX;sy=e.clientY;syncDrag=false;return;}
   const dx=e.clientX-sx,dy=e.clientY-sy;dragMoved+=Math.abs(dx)+Math.abs(dy);
-  if(!headActive&&!fixedMode){yawT=clamp(yawT-dx*0.0035,-3.14,3.14);pitchT=clamp(pitchT+dy*0.003,-1.52,1.52);}
+  if(!fixedMode){yawT=clamp(yawT-dx*0.0035,-3.14,3.14);pitchT=clamp(pitchT+dy*0.003,-1.52,1.52);}
   sx=e.clientX;sy=e.clientY;
 });
 cvs.addEventListener('pointerup',e=>{
+  activePtrs.delete(e.pointerId);
+  if(e.pointerId===dragId){dragId=activePtrs.size?[...activePtrs][0]:null;syncDrag=true;}
+  if(activePtrs.size>0)return; // other finger still down: no tap, no surge release
   dragging=false;
+  const wasMulti=multiTouch;multiTouch=false;
   if(charging){charging=false;chargeEl.style.borderColor='rgba(255,210,122,0)';
-    if(riding&&!fixedMode&&performance.now()-chargeT0>=450&&dragMoved<24){doPulse(e.clientX,e.clientY,true);return;}}
+    if(riding&&!fixedMode&&!wasMulti&&performance.now()-chargeT0>=450&&dragMoved<24){doPulse(e.clientX,e.clientY,true);return;}}
   const dt=performance.now()-dragStart;
-  if(dragMoved<14&&dt<350&&riding){
-    const nowT=performance.now();
-    if(headActive&&nowT-lastTapT<350&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<40){
-      if(lastDQ){baseDQ.copy(lastDQ);prevQ=lastDQ.clone();baseIsAbs=sawAbsolute;qRel.identity();qRelS.identity();}
-      lastTapT=0; // double-tap: recenter view
-    }else{
-      lastTapT=nowT;lastTapX=e.clientX;lastTapY=e.clientY;
-      doPulse(e.clientX,e.clientY);
-    }
-  }
+  if(!wasMulti&&dragMoved<14&&dt<350&&riding){doPulse(e.clientX,e.clientY);}
 });
-cvs.addEventListener('pointercancel',()=>{dragging=false;charging=false;chargeEl.style.borderColor='rgba(255,210,122,0)';});
+cvs.addEventListener('pointercancel',e=>{activePtrs.delete(e.pointerId);if(e.pointerId===dragId)dragId=null;if(activePtrs.size===0){dragging=false;charging=false;multiTouch=false;chargeEl.style.borderColor='rgba(255,210,122,0)';}});
 /* full 360-degree head tracking: the phone is a window into the world.
    Relative rotation from the pose at ride start (double-tap recenters).
    No clamps, no drift-back: turn all the way around and the view follows. */
@@ -740,8 +742,7 @@ function onOrient(e,isAbs){
     prevQ.copy(q);
   }
 }
-window.addEventListener('deviceorientation',e=>onOrient(e,false));
-window.addEventListener('deviceorientationabsolute',e=>onOrient(e,true));
+/* gyro look retired at George's word (Nov 11): fixed view, drag only. onOrient stays defined but is never wired up. */
 
 const projV=new THREE.Vector3(),camDir=new THREE.Vector3(),toC=new THREE.Vector3();
 /* chain-reaction waves: a tap ripples out along the threads, two hops deep */
@@ -833,9 +834,6 @@ const fadeEl=document.getElementById('fade'),titleEl=document.getElementById('ti
       ballsEl=document.getElementById('balls'),endText=document.getElementById('endText');
 function beginRide(){
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
-  if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
-    DeviceOrientationEvent.requestPermission().catch(()=>{});
-  }
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
   riding=true;curSeg=-1;curZone=-1;
   baseDQ=null;prevQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
@@ -847,9 +845,8 @@ function beginRide(){
   clusters.forEach(c=>{c.tapped=false;c.halo.material.opacity=0.18;c.inner.material.opacity=0.6;});
   updateBalls();ballsEl.style.display='block';
   hudEl.classList.add('on');hintEl.classList.add('on');
-  hintEl.innerHTML='Tap the gold-ringed ball on the beat &middot; Each hit pulls you toward the Heart';
+  hintEl.innerHTML='Drag to look &middot; Hold two fingers to dive deeper &middot; Tap the gold-ringed ball on the beat';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
-  setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap the gold ball on the beat';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
   setChord(0,false);startMelody();startPerc();
   driftBeat0=percNext;beatInit=true;
 }
@@ -951,11 +948,11 @@ function frame(now){
     while(nowT>=driftBeat0+beatIdx*1.0){onBeat(beatIdx);beatIdx++;}}
   heartDir.copy(heartCore.position).sub(driftPos).normalize();
   camera.getWorldDirection(aimDir);
-  moveDir.copy(heartDir).multiplyScalar(0.72).addScaledVector(aimDir,0.5).normalize();
+  moveDir.copy(aimDir); // free roam: no path, you go exactly where you look
   const distH=driftPos.distanceTo(heartCore.position);
   const progress=1-clamp(distH/driftStartDist,0,1);
   surgeV*=Math.pow(0.35,dt);
-  const speedTgt=DRIFT_BASE+Math.min(DRIFT_STREAK_CAP,streak*DRIFT_PER_STREAK)+surgeV+progress*progress*DRIFT_GRAV;
+  const speedTgt=DRIFT_BASE+Math.min(DRIFT_STREAK_CAP,streak*DRIFT_PER_STREAK)+surgeV+progress*progress*DRIFT_GRAV+((activePtrs.size>=2||thrustKey)?DRIFT_THRUST:0);
   driftVel.lerp(tmpV1.copy(moveDir).multiplyScalar(speedTgt),1-Math.pow(0.05,dt));
   driftPos.addScaledVector(driftVel,dt);
   const speedNow=driftVel.length();
@@ -965,15 +962,8 @@ function frame(now){
   camera.position.y+=Math.sin(tsec*0.42+2.0)*0.5+Math.sin(tsec*0.6)*0.6;
   camera.quaternion.copy(qBase0);
   if(!fixedMode){
-    if(headActive){
-      // unrestricted 360 look: head-relative rotation applied to the track view
-      qRelS.slerp(qRel,1-Math.pow(0.000001,dt));
-      tmpQ.copy(camera.quaternion);
-      camera.quaternion.copy(tmpQ).multiply(qRelS); // head delta in camera-local frame, so turns stay true as the track bends
-    }else{
-      yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
-      camera.rotateY(yaw);camera.rotateX(pitch);
-    }
+    yaw=lerp(yaw,yawT,1-Math.pow(0.0001,dt));pitch=lerp(pitch,pitchT,1-Math.pow(0.0001,dt));
+    camera.rotateY(yaw);camera.rotateX(pitch);
   }
   // target ring: closes in on the beat
   if(targetHot&&target){
