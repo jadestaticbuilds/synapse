@@ -722,6 +722,7 @@ cvs.addEventListener('pointercancel',()=>{dragging=false;charging=false;chargeEl
 let headActive=false,baseDQ=null,baseIsAbs=false,lastDQ=null,sawAbsolute=false;
 let lastTapT=0,lastTapX=0,lastTapY=0;
 const qRel=new THREE.Quaternion(),qRelS=new THREE.Quaternion(),tmpQ=new THREE.Quaternion();
+const qRelE=new THREE.Euler();
 const trackE=new THREE.Euler(),zAxis=new THREE.Vector3(0,0,1),qTmpA=new THREE.Quaternion();
 function onOrient(e,isAbs){
   if(e.alpha===null||e.beta===null||e.gamma===null)return;
@@ -741,6 +742,7 @@ function onOrient(e,isAbs){
       if(!fixedMode)hintEl.innerHTML='Move your phone to look around &middot; Tap to pulse &middot; Hold to surge &middot; Double-tap to recenter';}
   }else{
     qRel.copy(q).multiply(tmpQ.copy(baseDQ).invert());
+    qRelE.setFromQuaternion(qRel,'YXZ');qRelE.x=-qRelE.x;qRel.setFromEuler(qRelE); // pitch was inverted on device; yaw untouched
   }
 }
 window.addEventListener('deviceorientation',e=>onOrient(e,false));
