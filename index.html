@@ -48,6 +48,14 @@ canvas{display:block;}
 </script>
 </head>
 <body>
+<div id="dbg" style="position:fixed;left:6px;bottom:6px;z-index:99;max-width:92vw;font:10px/1.5 monospace;color:#9fe8c6;background:rgba(0,0,0,.75);padding:6px 8px;border-radius:6px;white-space:pre-wrap;pointer-events:none">boot</div>
+<script>
+window.__marks=[];window.__errs=[];
+window.__mark=function(s){window.__marks.push(s);};
+window.addEventListener('error',function(e){window.__errs.push((e.message||'load error')+' @line '+(e.lineno||'?'));},true);
+window.addEventListener('unhandledrejection',function(e){window.__errs.push('promise: '+((e.reason&&e.reason.message)||e.reason));});
+setInterval(function(){var d=document.getElementById('dbg');if(d)d.textContent='MARKS: '+window.__marks.join(' > ')+(window.__errs.length?'\nERR: '+window.__errs.join(' | '):'');},400);
+</script>
 <div id="stage"></div>
 <div id="fade"></div>
 <div id="hud"><div id="prog"><div id="progfill"></div></div><div id="balls"></div></div>
@@ -646,7 +654,7 @@ let yawT=0,pitchT=0,yaw=0,pitch=0,dragging=false,dragMoved=0,dragStart=0,sx=0,sy
 let chargeT0=0,chargeX=0,chargeY=0,charging=false;
 const chargeEl=document.getElementById('chargeRing');
 
-const cvs=renderer.domElement;
+const cvs=renderer.domElement;__mark('renderer ok');
 cvs.addEventListener('pointerdown',e=>{dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);
   if(riding&&!fixedMode){charging=true;chargeT0=performance.now();chargeX=e.clientX;chargeY=e.clientY;
     chargeEl.style.left=chargeX+'px';chargeEl.style.top=chargeY+'px';chargeEl.style.borderColor='rgba(255,210,122,0)';}});
@@ -756,11 +764,12 @@ modeLook.onclick=()=>{fixedMode=false;modeLook.classList.add('on');modeFixed.cla
 modeFixed.onclick=()=>{fixedMode=true;modeFixed.classList.add('on');modeLook.classList.remove('on');
   modeDesc.textContent='Camera locked forward. Tap every sound ball as it passes.';};
 function beginRide(){
-  initAudio();if(AC&&AC.state==='suspended')AC.resume();
+  __mark('begin tapped');initAudio();__mark('audio ok');if(AC&&AC.state==='suspended')AC.resume();
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
     DeviceOrientationEvent.requestPermission().catch(()=>{});
   }
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
+  __mark('permission passed');
   riding=true;rt=0;curSeg=-1;
   baseDQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
   tappedCount=0;
@@ -770,10 +779,10 @@ function beginRide(){
   hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap to pulse &middot; Hold to surge';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
   if(!fixedMode)setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap a cluster to pulse it';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
-  setChord(0,false);startMelody();startPerc();
+  setChord(0,false);startMelody();startPerc();__mark('ride started');
 }
 document.getElementById('beginBtn').onclick=beginRide;
-document.getElementById('againBtn').onclick=beginRide;
+document.getElementById('againBtn').onclick=beginRide;__mark('handlers ok');
 let paused=false;
 document.addEventListener('visibilitychange',()=>{paused=document.hidden;});
 
@@ -797,7 +806,7 @@ function driftDust(p,dt){
 /* ================= main loop ================= */
 let last=performance.now(),fpsAcc=0,fpsN=0,degraded=false;
 function frame(now){
-  requestAnimationFrame(frame);
+  requestAnimationFrame(frame);if(!window.__fr){window.__fr=1;__mark('frame running');}
   let dt=Math.min((now-last)/1000,0.05);last=now;
   if(paused)return;
   const tsec=now/1000;
