@@ -76,6 +76,7 @@ import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ================= utils ================= */
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
@@ -354,12 +355,20 @@ const nebulaUniforms={uTime:{value:0},uRush:{value:0}};
 
 /* ================= flight path (invisible) ================= */
 const PTS=[
-  [0,10,0],[6,12,-50],[-4,14,-100],[8,16,-150],[-8,15,-200],
-  [4,18,-250],[-6,20,-300],[10,22,-350],[0,20,-400],[-10,24,-450],
-  [6,26,-500],[-4,24,-550],[8,28,-600],[0,30,-650],[-8,28,-700],
-  [4,32,-750],[0,34,-800],[6,36,-850],[0,38,-900],[0,40,-930]
+  [0,10,0],[6,12,-50],
+  [-14,10,-100],[14,12,-150],[-14,14,-200],[10,16,-250],
+  [4,18,-300],[0,10,-350],
+  [-2,2,-400],[2,-4,-450],
+  [0,0,-500],[0,5,-555],[0,10,-605],
+  [9,14,-640],[0,23,-672],[-9,14,-704],[0,5,-736],[9,14,-768],
+  [2,16,-815],[0,18,-862],
+  [0,24,-900],[0,38,-935]
 ].map(p=>new THREE.Vector3(p[0],p[1],p[2]));
 const curve=new THREE.CatmullRomCurve3(PTS,false,'catmullrom',0.35);
+const curveLen=curve.getLength();
+function uAtZ(z){let best=0,bd=1e9;for(let i=0;i<=800;i++){const u=i/800,p=curve.getPointAt(u);const d=Math.abs(p.z-z);if(d<bd){bd=d;best=u;}}return best;}
+const TUNNELS=[[uAtZ(-458),uAtZ(-600)],[uAtZ(-788),uAtZ(-866)]];
+function inTunnel(u,pad){for(const [a,b] of TUNNELS){if(u>a-(pad||0)&&u<b+(pad||0))return true;}return false;}
 
 /* ================= cluster materials ================= */
 function coreMaterial(color){
@@ -450,7 +459,7 @@ function addCluster(pos,color,scale){
   let placed=0,guard=0;
   while(placed<52&&guard++<800){
     const t=0.03+rng()*0.94;
-    if(t>0.68&&t<0.87)continue;
+    if(inTunnel(t,0.012))continue;
     curve.getPointAt(t,tmp);curve.getTangentAt(t,tan);
     side.crossVectors(tan,up).normalize();
     const off=(side.clone().multiplyScalar((rng()<0.5?-1:1)*(16+rng()*46)))
@@ -474,33 +483,62 @@ function addCluster(pos,color,scale){
     });
   });
 }
-/* thread tunnel (t 0.70-0.85) */
+/* prism gate tunnels: counter-rotating rings + spokes + crystal shards, hues streaming */
+const gates=[];let gateShardMat=null;
 {
-  const ringMat=new THREE.MeshBasicMaterial({color:0x3dff9e,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
-  const ringMat2=new THREE.MeshBasicMaterial({color:0x29e6ff,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
-  const tmp=new THREE.Vector3(),tan=new THREE.Vector3();
-  let prev=null;
-  for(let i=0;i<=10;i++){
-    const t=0.70+i*0.015;curve.getPointAt(t,tmp);curve.getTangentAt(t,tan);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(15,0.35,6,48),ringMat);
-    ring.position.copy(tmp);
-    ring.lookAt(tmp.clone().add(tan));
-    scene.add(ring);
-    const ring2=new THREE.Mesh(new THREE.TorusGeometry(22,0.3,6,48),ringMat2);
-    ring2.position.copy(tmp);
-    ring2.lookAt(tmp.clone().add(tan));
-    scene.add(ring2);
-    if(prev){
-      for(let k=0;k<8;k++){
-        const a=k/8*Math.PI*2;
-        const p1=new THREE.Vector3(Math.cos(a)*15,Math.sin(a)*15,0).add(prev.p);
-        const p2=new THREE.Vector3(Math.cos(a)*15,Math.sin(a)*15,0).add(tmp);
-        const g=new THREE.BufferGeometry().setFromPoints([p1,p2]);
-        scene.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:0xff3df0,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending})));
+  const outerGeo=new THREE.TorusGeometry(9,0.16,6,44);
+  const innerGeo=new THREE.TorusGeometry(5,0.12,6,36);
+  const spokeGeos=[];
+  for(let k=0;k<8;k++){
+    const sg=new THREE.BoxGeometry(0.22,4.4,0.22);
+    sg.translate(0,7,0);
+    sg.applyMatrix4(new THREE.Matrix4().makeRotationZ(k/8*Math.PI*2));
+    spokeGeos.push(sg);
+  }
+  const spokeGeo=mergeGeometries(spokeGeos);
+  const gemGeos=[];
+  for(let k=0;k<4;k++){
+    const gg=new THREE.OctahedronGeometry(0.55);
+    const a=Math.PI/4+k*Math.PI/2;
+    gg.translate(Math.cos(a)*9,Math.sin(a)*9,0);
+    gemGeos.push(gg);
+  }
+  const gemGeo=mergeGeometries(gemGeos);
+  const shardGeos=[];
+  const dummy=new THREE.Object3D();
+  TUNNELS.forEach(([ua,ub],zi)=>{
+    const nG=Math.max(4,Math.round((ub-ua)*curveLen/13));
+    for(let i=0;i<=nG;i++){
+      const u=ua+(ub-ua)*(i/nG);
+      const p=curve.getPointAt(u),tan=curve.getTangentAt(u);
+      const g=new THREE.Group();g.position.copy(p);g.lookAt(p.clone().add(tan));
+      const om=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,fog:false});
+      const im=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,fog:false});
+      const spinB=new THREE.Group();
+      spinB.add(new THREE.Mesh(outerGeo,om));
+      spinB.add(new THREE.Mesh(gemGeo,om));
+      const spinA=new THREE.Group();
+      spinA.add(new THREE.Mesh(innerGeo,im));
+      spinA.add(new THREE.Mesh(spokeGeo,im));
+      g.add(spinB);g.add(spinA);scene.add(g);
+      gates.push({spinA,spinB,om,im,u,hue:(i*0.11+zi*0.37)%1,dir:i%2?1:-1,flash:0});
+      if(i<nG){
+        const um=ua+(ub-ua)*((i+0.5)/nG);
+        const pm=curve.getPointAt(um),tm2=curve.getTangentAt(um);
+        dummy.position.copy(pm);dummy.lookAt(pm.clone().add(tm2));
+        for(let k=0;k<8;k++){
+          const a=k/8*Math.PI*2+0.39;
+          const off=new THREE.Vector3(Math.cos(a)*6.9,Math.sin(a)*6.9,0).applyQuaternion(dummy.quaternion);
+          const sh=new THREE.OctahedronGeometry(1.05+rng()*0.5);
+          sh.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3)));
+          sh.translate(pm.x+off.x,pm.y+off.y,pm.z+off.z);
+          shardGeos.push(sh);
+        }
       }
     }
-    prev={p:tmp.clone()};
-  }
+  });
+  gateShardMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,fog:false});
+  scene.add(new THREE.Mesh(mergeGeometries(shardGeos),gateShardMat));
 }
 /* finale vista: vast distant cluster field */
 {
@@ -641,9 +679,10 @@ function spawnRing(pos,color,s){
 }
 
 /* ================= ride ================= */
-const SPEED_KEYS=[[0,0.0038],[0.10,0.0073],[0.25,0.0088],[0.40,0.0093],[0.55,0.0088],[0.65,0.0063],[0.70,0.0165],[0.80,0.0175],[0.88,0.0105],[0.92,0.006],[1,0.003]];
+const SPEED_KEYS=[[0,0.0042],[0.08,0.009],[0.22,0.011],[0.36,0.010],[0.44,0.013],[0.50,0.020],[0.58,0.021],[0.63,0.012],[0.70,0.016],[0.78,0.013],[0.83,0.022],[0.89,0.011],[0.94,0.006],[1,0.003]];
 const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
 let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
+let tunnelBlend=0,fovKick=0,whooshKick=0,ambT=3;
 let fixedMode=false;
 const lookP=new THREE.Vector3(), lookT=new THREE.Vector3(), tanV=new THREE.Vector3(), tan2=new THREE.Vector3();
 let yawT=0,pitchT=0,yaw=0,pitch=0,dragging=false,dragMoved=0,dragStart=0,sx=0,sy=0;
@@ -852,14 +891,36 @@ function frame(now){
     if(r.t>1){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
   }
 
+  // prism gates: counter-rotation, streaming hues, pass flash decay
+  for(const gt of gates){
+    if(Math.abs(gt.u-rt)>0.13&&gt.flash<=0)continue;
+    gt.spinA.rotation.z+=dt*1.5*gt.dir;
+    gt.spinB.rotation.z-=dt*0.9*gt.dir;
+    if(gt.flash>0)gt.flash=Math.max(0,gt.flash-dt*2.2);
+    const hue=(gt.hue+tsec*0.03)%1;
+    gt.om.color.setHSL(hue,0.95,0.55+gt.flash*0.25);
+    gt.im.color.setHSL((hue+0.5)%1,0.95,0.5+gt.flash*0.3);
+  }
+  if(gateShardMat)gateShardMat.color.setHSL((tsec*0.03+0.15)%1,0.9,0.5);
   if(charging){const pr=Math.min(1,(performance.now()-chargeT0)/450);
     chargeEl.style.transform='translate(-50%,-50%) scale('+(0.6+0.55*pr)+')';
     chargeEl.style.borderColor='rgba(255,210,122,'+(0.15+0.75*pr)+')';}
   nebulaUniforms.uRush.value*=Math.pow(0.1,dt);
   if(!riding){preRideCam(now);streaks.material.opacity=0;composer.render();return;}
 
-  const spd=smoothKeys(SPEED_KEYS,rt);
+  tunnelBlend=lerp(tunnelBlend,inTunnel(rt,0.004)?1:0,1-Math.pow(0.02,dt));
+  const rtPrev=rt;
+  const spd=smoothKeys(SPEED_KEYS,rt)*(1+0.3*tunnelBlend);
   rt=Math.min(1,rt+spd*dt);
+  // gate passes: flash + whoosh + fov kick
+  for(const gt of gates){if(rtPrev<gt.u&&rt>=gt.u){gt.flash=1;whooshKick=1;fovKick=Math.max(fovKick,5);}}
+  // ambient life: a nearby cluster fires a pulse on its own every few seconds
+  ambT-=dt;
+  if(ambT<=0){ambT=2.2+Math.random()*1.4;
+    let best=null,bd=95*95;
+    for(const c of clusters){const d=c.grp.position.distanceToSquared(lookP);if(d<bd){bd=d;best=c;}}
+    if(best)triggerWave(best,1);
+  }
   const seg=SEG_OF_T(rt);
   if(seg!==curSeg){curSeg=seg;setChord(seg,seg===3);}
   curve.getPointAt(rt,lookP);curve.getPointAt(Math.min(1,rt+0.012),lookT);
@@ -870,7 +931,7 @@ function frame(now){
   camera.up.set(0,1,0);camera.lookAt(lookT);
   curve.getTangentAt(rt,tanV);curve.getTangentAt(Math.min(1,rt+0.004),tan2);
   const cross=tanV.x*tan2.z-tanV.z*tan2.x;
-  const targetRoll=clamp(-cross*260,-0.55,0.55);
+  const targetRoll=clamp(-cross*340,-0.85,0.85);
   rollSm=lerp(rollSm,targetRoll,1-Math.pow(0.001,dt));
   camera.rotateZ(rollSm);
   if(!fixedMode){
@@ -885,12 +946,13 @@ function frame(now){
     }
   }
   // fixed camera: pure track view, nothing else touches it
-  const sNorm=clamp(spd/0.010,0,1);
-  fovSm=lerp(fovSm,62+sNorm*26,1-Math.pow(0.01,dt));
+  const sNorm=clamp(spd/0.014,0,1);
+  fovKick*=Math.pow(0.05,dt);
+  fovSm=lerp(fovSm,62+sNorm*26+tunnelBlend*8+fovKick,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
   nebulaUniforms.uRush.value=lerp(nebulaUniforms.uRush.value,clamp((sNorm-0.45)/0.55,0,1),1-Math.pow(0.01,dt));
   {
-    const sp=streaks.geometry.attributes.position,vz=(14+sNorm*215)*dt;
+    const sp=streaks.geometry.attributes.position,vz=(14+sNorm*215+tunnelBlend*130)*dt;
     for(let i=0;i<sp.count;i++){
       let z=sp.getZ(i)+vz;
       if(z>2){z-=107;sp.setX(i,(Math.random()-0.5)*60);sp.setY(i,(Math.random()-0.5)*40);}
@@ -900,7 +962,8 @@ function frame(now){
     streaks.material.opacity=0.05+sNorm*0.6;
   }
   if(AC&&soundOn){
-    whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.05,AC.currentTime,0.15);
+    whooshKick*=Math.pow(0.02,dt);
+    whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.05+whooshKick*0.05,AC.currentTime,0.15);
     whooshFilter.frequency.setTargetAtTime(350+sNorm*1600,AC.currentTime,0.15);
   }
   progEl.style.width=(rt*100).toFixed(1)+'%';
