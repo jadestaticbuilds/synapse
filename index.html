@@ -56,18 +56,13 @@ canvas{display:block;}
 <div id="chargeRing"></div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>A flight along the neural line. Drifting through the clusters, the threads, and the quiet between them.</p>
-  <div id="modeRow">
-    <button class="modeBtn on" id="modeLook">LOOK AROUND</button>
-    <button class="modeBtn" id="modeFixed">FIXED CAMERA</button>
-  </div>
-  <p id="modeDesc">Move your phone to look around the mindscape.</p>
-  <button class="btn" id="beginBtn">BEGIN THE RIDE</button>
+  <p>Drift the mindscape. Tap the gold-ringed ball on the beat, and the Heart will pull you in.</p>
+  <button class="btn" id="beginBtn">BEGIN THE DRIFT</button>
 </div>
 <div class="screen hidden" id="end">
-  <h1>RIDE COMPLETE</h1>
-  <p id="endText">The threads settle. The clusters keep their light.</p>
-  <button class="btn" id="againBtn">RIDE AGAIN</button>
+  <h1>THE HEART</h1>
+  <p id="endText">You drifted home on the beat.</p>
+  <button class="btn" id="againBtn">DRIFT AGAIN</button>
 </div>
 <script type="module">
 import * as THREE from 'three';
@@ -83,14 +78,6 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a
 const rng = mulberry32(1337);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
-function smoothKeys(keys,t){
-  if(t<=keys[0][0])return keys[0][1];
-  for(let i=0;i<keys.length-1;i++){
-    const a=keys[i],b=keys[i+1];
-    if(t<=b[0]){const u=(t-a[0])/(b[0]-a[0]);const s=(1-Math.cos(u*Math.PI))/2;return lerp(a[1],b[1],s);}
-  }
-  return keys[keys.length-1][1];
-}
 document.addEventListener('gesturestart',e=>e.preventDefault());
 document.addEventListener('gesturechange',e=>e.preventDefault());
 let lastTE=0;
@@ -521,7 +508,7 @@ const gates=[];let gateShardMat=null;
       spinA.add(new THREE.Mesh(innerGeo,im));
       spinA.add(new THREE.Mesh(spokeGeo,im));
       g.add(spinB);g.add(spinA);scene.add(g);
-      gates.push({spinA,spinB,om,im,u,hue:(i*0.11+zi*0.37)%1,dir:i%2?1:-1,flash:0});
+      gates.push({spinA,spinB,om,im,u,p:p.clone(),hue:(i*0.11+zi*0.37)%1,dir:i%2?1:-1,flash:0});
       if(i<nG){
         const um=ua+(ub-ua)*((i+0.5)/nG);
         const pm=curve.getPointAt(um),tm2=curve.getTangentAt(um);
@@ -679,10 +666,13 @@ function spawnRing(pos,color,s){
 }
 
 /* ================= ride ================= */
-const SPEED_KEYS=[[0,0.0042],[0.08,0.009],[0.22,0.011],[0.36,0.010],[0.44,0.013],[0.50,0.020],[0.58,0.021],[0.63,0.012],[0.70,0.016],[0.78,0.013],[0.83,0.022],[0.89,0.011],[0.94,0.006],[1,0.003]];
-const SEG_OF_T=t=>t<0.15?0:t<0.30?1:t<0.55?2:t<0.70?3:t<0.85?4:5;
-let riding=false, rt=0, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
-let tunnelBlend=0,fovKick=0,whooshKick=0,ambT=3;
+let riding=false, rollSm=0, fovSm=64, curSeg=-1, tappedCount=0;
+let fovKick=0,whooshKick=0,ambT=3;
+/* ================= drift ================= */
+const DRIFT_BASE=2.4,DRIFT_PER_STREAK=0.9,DRIFT_STREAK_CAP=9,DRIFT_IMPULSE=3.5,DRIFT_SURGE_CAP=12,DRIFT_GRAV=4;
+const driftPos=new THREE.Vector3(0,12,26),driftVel=new THREE.Vector3(),qBase0=new THREE.Quaternion();
+const heartDir=new THREE.Vector3(),aimDir=new THREE.Vector3(),moveDir=new THREE.Vector3(),tmpV1=new THREE.Vector3(),tmpV2=new THREE.Vector3();
+let streak=0,bestStreak=0,surgeV=0,beatIdx=0,driftBeat0=0,beatInit=false,driftStartDist=1036,curZone=-1;
 let fixedMode=false;
 const lookP=new THREE.Vector3(), lookT=new THREE.Vector3(), tanV=new THREE.Vector3(), tan2=new THREE.Vector3();
 let yawT=0,pitchT=0,yaw=0,pitch=0,dragging=false,dragMoved=0,dragStart=0,sx=0,sy=0;
@@ -760,6 +750,37 @@ function triggerWave(c0,hops){
     frontier=next;
   }
 }
+/* ================= drift: lit target system ================= */
+let target=null,targetHot=false,targetLightT=0,targetUntilBeat=0,lastTargetC=null;
+const targetRing=new THREE.Mesh(new THREE.TorusGeometry(1,0.045,8,44),
+  new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+targetRing.visible=false;scene.add(targetRing);
+function clearTarget(dim){
+  if(target){target.c.halo.material.opacity=target.c.tapped?0.34:0.18;target.c.inner.material.opacity=target.c.tapped?0.85:0.6;
+    if(dim)target.c.flash=Math.max(target.c.flash,0.3);}
+  target=null;targetHot=false;targetRing.visible=false;
+}
+function lightTarget(k){
+  const camP=camera.position;
+  camera.getWorldDirection(tmpV1);
+  const scored=clusters.filter(c=>c!==lastTargetC)
+    .map(c=>({c,d:c.grp.position.distanceTo(camP)})).filter(o=>o.d>28&&o.d<190);
+  let pool=scored.filter(o=>{tmpV2.copy(o.c.grp.position).sub(camP).normalize();return tmpV2.dot(tmpV1)>-0.1;});
+  if(pool.length<2)pool=scored;
+  if(!pool.length)return;
+  pool.sort((a,b)=>a.d-b.d);
+  const pick=pool[Math.floor(Math.random()*Math.min(5,pool.length))].c;
+  target={c:pick};lastTargetC=pick;targetHot=true;
+  targetLightT=AC?AC.currentTime:0;
+  targetUntilBeat=k+(streak>=4?1:2);
+  pick.halo.material.opacity=0.55;pick.inner.material.opacity=0.95;
+  targetRing.visible=true;
+}
+function onBeat(k){
+  if(!riding)return;
+  if(targetHot&&k>=targetUntilBeat){clearTarget(true);streak=Math.floor(streak/2);updateBalls();} // a miss halves the streak, never zeroes it
+  if(!targetHot)lightTarget(k);
+}
 function doPulse(px,py,surge){
   // generous screen-space tap: nearest cluster within its glow radius
   camera.getWorldDirection(camDir);
@@ -777,6 +798,17 @@ function doPulse(px,py,surge){
   let onBeat=false;
   if(AC&&soundOn&&percNext>0){const tNow=AC.currentTime;
     if(percNext-tNow<2.5){const ph=((tNow-percNext)%1+1)%1;onBeat=Math.min(ph,1-ph)<=0.14;}}
+  if(riding&&targetHot&&target&&best===target.c){
+    clearTarget(false);
+    streak++;bestStreak=Math.max(bestStreak,streak);
+    surgeV=Math.min(DRIFT_SURGE_CAP,surgeV+DRIFT_IMPULSE*(onBeat?1.6:1)*(surge?1.25:1));
+    fovKick=Math.max(fovKick,onBeat?7:4);whooshKick=1;
+    best.flash=1;spawnRing(best.grp.position,0xffd27a,1.5);chime();triggerWave(best,3);
+    if(navigator.vibrate)navigator.vibrate(15);
+    if(!best.tapped){best.tapped=true;tappedCount++;best.halo.material.opacity=0.34;best.inner.material.opacity=0.85;}
+    updateBalls();
+    return;
+  }
   best.flash=1;spawnRing(best.grp.position,onBeat?0xffd27a:best.color,surge?1.35:1);chime();
   triggerWave(best,(surge||onBeat)?3:2);
   if(surge&&navigator.vibrate)navigator.vibrate(18);
@@ -786,35 +818,34 @@ function doPulse(px,py,surge){
     else{best.halo.material.opacity=0.34;best.inner.material.opacity=0.85;} // lit trail: stays glowing behind you
   }
 }
-function updateBalls(){ballsEl.textContent='Sound balls  '+tappedCount+' / '+clusters.length;}
+function updateBalls(){ballsEl.textContent='Streak '+streak+'  ·  Lit '+tappedCount+' / '+clusters.length;}
 
 /* ================= flow ================= */
 const fadeEl=document.getElementById('fade'),titleEl=document.getElementById('title'),
       endEl=document.getElementById('end'),hudEl=document.getElementById('hud'),
       hintEl=document.getElementById('hint'),progEl=document.getElementById('progfill'),
       ballsEl=document.getElementById('balls'),endText=document.getElementById('endText');
-const modeLook=document.getElementById('modeLook'),modeFixed=document.getElementById('modeFixed'),
-      modeDesc=document.getElementById('modeDesc');
-modeLook.onclick=()=>{fixedMode=false;modeLook.classList.add('on');modeFixed.classList.remove('on');
-  modeDesc.textContent='Move your phone to look around the mindscape.';};
-modeFixed.onclick=()=>{fixedMode=true;modeFixed.classList.add('on');modeLook.classList.remove('on');
-  modeDesc.textContent='Camera locked forward. Tap every sound ball as it passes.';};
 function beginRide(){
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
     DeviceOrientationEvent.requestPermission().catch(()=>{});
   }
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
-  riding=true;rt=0;curSeg=-1;
+  riding=true;curSeg=-1;curZone=-1;
   baseDQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
-  tappedCount=0;
+  tappedCount=0;streak=0;bestStreak=0;surgeV=0;beatIdx=0;beatInit=false;target=null;targetHot=false;targetRing.visible=false;
+  driftPos.set(0,12,26);driftVel.set(0,0,0);
+  driftStartDist=driftPos.distanceTo(heartCore.position);
+  qBase0.setFromRotationMatrix(new THREE.Matrix4().lookAt(driftPos,heartCore.position,new THREE.Vector3(0,1,0)));
+  yawT=0;pitchT=0;yaw=0;pitch=0;
   clusters.forEach(c=>{c.tapped=false;c.halo.material.opacity=0.18;c.inner.material.opacity=0.6;});
-  updateBalls();ballsEl.style.display=fixedMode?'block':'none';
+  updateBalls();ballsEl.style.display='block';
   hudEl.classList.add('on');hintEl.classList.add('on');
-  hintEl.innerHTML=fixedMode?'Tap the sound balls as they pass':'Drag to look around &middot; Tap to pulse &middot; Hold to surge';
+  hintEl.innerHTML='Tap the gold-ringed ball on the beat &middot; Each hit pulls you toward the Heart';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
-  if(!fixedMode)setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap a cluster to pulse it';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
+  setTimeout(()=>{if(riding&&!headActive){hintEl.innerHTML='No motion sensor reaching the app here &middot; Drag to look around &middot; Tap the gold ball on the beat';hintEl.classList.add('on');setTimeout(()=>hintEl.classList.remove('on'),9000);}},1800);
   setChord(0,false);startMelody();startPerc();
+  driftBeat0=percNext;beatInit=true;
 }
 document.getElementById('beginBtn').onclick=beginRide;
 document.getElementById('againBtn').onclick=beginRide;
@@ -894,7 +925,7 @@ function frame(now){
 
   // prism gates: counter-rotation, streaming hues, pass flash decay
   for(const gt of gates){
-    if(Math.abs(gt.u-rt)>0.13&&gt.flash<=0)continue;
+    if(gt.p.distanceToSquared(camera.position)>32400&&gt.flash<=0)continue;
     gt.spinA.rotation.z+=dt*1.5*gt.dir;
     gt.spinB.rotation.z-=dt*0.9*gt.dir;
     if(gt.flash>0)gt.flash=Math.max(0,gt.flash-dt*2.2);
@@ -909,32 +940,24 @@ function frame(now){
   nebulaUniforms.uRush.value*=Math.pow(0.1,dt);
   if(!riding){preRideCam(now);streaks.material.opacity=0;composer.render();return;}
 
-  tunnelBlend=lerp(tunnelBlend,inTunnel(rt,0.004)?1:0,1-Math.pow(0.02,dt));
-  const rtPrev=rt;
-  const spd=smoothKeys(SPEED_KEYS,rt)*(1+0.3*tunnelBlend);
-  rt=Math.min(1,rt+spd*dt);
-  // gate passes: flash + whoosh + fov kick
-  for(const gt of gates){if(rtPrev<gt.u&&rt>=gt.u){gt.flash=1;whooshKick=1;fovKick=Math.max(fovKick,5);}}
-  // ambient life: a nearby cluster fires a pulse on its own every few seconds
-  ambT-=dt;
-  if(ambT<=0){ambT=2.2+Math.random()*1.4;
-    let best=null,bd=95*95;
-    for(const c of clusters){const d=c.grp.position.distanceToSquared(lookP);if(d<bd){bd=d;best=c;}}
-    if(best)triggerWave(best,1);
-  }
-  const seg=SEG_OF_T(rt);
-  if(seg!==curSeg){curSeg=seg;setChord(seg,seg===3);}
-  curve.getPointAt(rt,lookP);curve.getPointAt(Math.min(1,rt+0.012),lookT);
-  camera.position.copy(lookP);
-  // cinematic handheld drift
+  // ===== DRIFT: rhythm-powered float toward the Heart =====
+  if(AC&&beatInit){const nowT=AC.currentTime;
+    while(nowT>=driftBeat0+beatIdx*1.0){onBeat(beatIdx);beatIdx++;}}
+  heartDir.copy(heartCore.position).sub(driftPos).normalize();
+  camera.getWorldDirection(aimDir);
+  moveDir.copy(heartDir).multiplyScalar(0.72).addScaledVector(aimDir,0.5).normalize();
+  const distH=driftPos.distanceTo(heartCore.position);
+  const progress=1-clamp(distH/driftStartDist,0,1);
+  surgeV*=Math.pow(0.35,dt);
+  const speedTgt=DRIFT_BASE+Math.min(DRIFT_STREAK_CAP,streak*DRIFT_PER_STREAK)+surgeV+progress*progress*DRIFT_GRAV;
+  driftVel.lerp(tmpV1.copy(moveDir).multiplyScalar(speedTgt),1-Math.pow(0.05,dt));
+  driftPos.addScaledVector(driftVel,dt);
+  const speedNow=driftVel.length();
+  const sNorm=clamp(speedNow/20,0,1);
+  camera.position.copy(driftPos);
   camera.position.x+=Math.sin(tsec*0.5)*0.7+Math.sin(tsec*1.31)*0.3;
-  camera.position.y+=Math.sin(tsec*0.42+2.0)*0.5;
-  camera.up.set(0,1,0);camera.lookAt(lookT);
-  curve.getTangentAt(rt,tanV);curve.getTangentAt(Math.min(1,rt+0.004),tan2);
-  const cross=tanV.x*tan2.z-tanV.z*tan2.x;
-  const targetRoll=clamp(-cross*340,-0.85,0.85);
-  rollSm=lerp(rollSm,targetRoll,1-Math.pow(0.001,dt));
-  camera.rotateZ(rollSm);
+  camera.position.y+=Math.sin(tsec*0.42+2.0)*0.5+Math.sin(tsec*0.6)*0.6;
+  camera.quaternion.copy(qBase0);
   if(!fixedMode){
     if(headActive){
       // unrestricted 360 look: head-relative rotation applied to the track view
@@ -946,14 +969,23 @@ function frame(now){
       camera.rotateY(yaw);camera.rotateX(pitch);
     }
   }
-  // fixed camera: pure track view, nothing else touches it
-  const sNorm=clamp(spd/0.014,0,1);
+  // target ring: closes in on the beat
+  if(targetHot&&target){
+    const iv=(streak>=4?1:2);
+    const ph=clamp(((AC?AC.currentTime:0)-targetLightT)/iv,0,1);
+    targetRing.position.copy(target.c.grp.position);
+    targetRing.lookAt(camera.position);
+    targetRing.scale.setScalar(target.c.scale*6.4*(1.5-0.5*ph));
+    targetRing.material.opacity=0.65+0.35*Math.sin(tsec*6);
+  }
+  const zone=Math.min(5,Math.floor(progress*6));
+  if(zone!==curZone){curZone=zone;setChord(zone,zone===3);}
   fovKick*=Math.pow(0.05,dt);
-  fovSm=lerp(fovSm,62+sNorm*26+tunnelBlend*8+fovKick,1-Math.pow(0.01,dt));
+  fovSm=lerp(fovSm,62+sNorm*26+fovKick,1-Math.pow(0.01,dt));
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
   nebulaUniforms.uRush.value=lerp(nebulaUniforms.uRush.value,clamp((sNorm-0.45)/0.55,0,1),1-Math.pow(0.01,dt));
   {
-    const sp=streaks.geometry.attributes.position,vz=(14+sNorm*215+tunnelBlend*130)*dt;
+    const sp=streaks.geometry.attributes.position,vz=(14+sNorm*215)*dt;
     for(let i=0;i<sp.count;i++){
       let z=sp.getZ(i)+vz;
       if(z>2){z-=107;sp.setX(i,(Math.random()-0.5)*60);sp.setY(i,(Math.random()-0.5)*40);}
@@ -967,12 +999,19 @@ function frame(now){
     whooshGain.gain.setTargetAtTime(sNorm*sNorm*0.05+whooshKick*0.05,AC.currentTime,0.15);
     whooshFilter.frequency.setTargetAtTime(350+sNorm*1600,AC.currentTime,0.15);
   }
-  progEl.style.width=(rt*100).toFixed(1)+'%';
-
-  if(rt>=1){
-    riding=false;stopMelody();stopPerc();hudEl.classList.remove('on');
-    if(fixedMode)endText.textContent='You tapped '+tappedCount+' of '+clusters.length+' sound balls.';
-    else endText.textContent='The threads settle. The clusters keep their light.';
+  ambT-=dt;
+  if(ambT<=0){ambT=2.2+Math.random()*1.4;
+    let best=null,bd=95*95;
+    for(const c of clusters){const d=c.grp.position.distanceToSquared(camera.position);if(d<bd){bd=d;best=c;}}
+    if(best)triggerWave(best,1);
+  }
+  progEl.style.width=(progress*100).toFixed(1)+'%';
+  if(distH<58){
+    riding=false;beatInit=false;clearTarget(false);stopMelody();stopPerc();hudEl.classList.remove('on');
+    endText.textContent='You reached the Heart \u00b7 '+tappedCount+' balls lit \u00b7 best streak '+bestStreak;
+    const nowMs=performance.now();
+    [...clusters].sort((a,b)=>a.grp.position.distanceTo(heartCore.position)-b.grp.position.distanceTo(heartCore.position))
+      .forEach((c,i)=>waves.push({c,hop:1,t:nowMs+i*80}));
     fadeEl.style.opacity=1;
     setTimeout(()=>{endEl.classList.remove('hidden');fadeEl.style.opacity=0;},1300);
     if(AC){padVoices.forEach(v=>v.g.gain.setTargetAtTime(0.0001,AC.currentTime,1.2));
