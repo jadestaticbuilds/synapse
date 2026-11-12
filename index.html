@@ -99,12 +99,12 @@ document.addEventListener('touchend',e=>{const n=Date.now();if(n-lastTE<300)e.pr
 let AC=null, master=null, soundOn=true, verb=null, percNoise=null;
 let padVoices=[], whooshGain=null, whooshFilter=null, droneOsc=null, droneGain=null;
 const CHORDS=[
-  {root:29,iv:[0,3,7,14]},   // Fm9
-  {root:25,iv:[0,4,7,14]},   // Dbmaj9
-  {root:32,iv:[0,4,7,14]},   // Abmaj9
-  {root:34,iv:[0,3,7,14]},   // Bbm9 (breather, softer)
-  {root:27,iv:[0,4,7,14]},   // Ebmaj9
-  {root:29,iv:[0,3,7,14]},   // Fm9 (finale)
+  {root:29,iv:[0,4,7,14]},   // Fmaj9 (I)
+  {root:36,iv:[0,4,7,14]},   // Cmaj9 (V, bright lift)
+  {root:34,iv:[0,4,7,14]},   // Bbmaj9 (IV)
+  {root:29,iv:[0,4,7,14]},   // Fmaj9 (I, home)
+  {root:31,iv:[0,4,7,14]},   // Gmaj9 (II, sunny borrowed chord)
+  {root:29,iv:[0,4,7,14]},   // Fmaj9 (finale)
 ];
 const m2f=m=>440*Math.pow(2,(m-69)/12);
 function makeIR(dur,decay){
@@ -166,7 +166,7 @@ function setChord(idx,soft){
   droneGain.gain.setTargetAtTime(soft?0.02:0.035,t,1.5);
 }
 // tap dyads: two pentatonic notes a fifth apart (3 scale steps), picked at random
-const FMIN=[0,2,3,5,7,8,10]; // F natural minor semitone offsets
+const FMAJ=[0,2,4,5,7,9,11]; // F major semitone offsets
 let lastDyad=-1;
 function chimeNote(t,midi,vol){
   [['triangle',1,vol],['sine',2,vol*0.35]].forEach(([ty,mult,v])=>{
@@ -183,19 +183,19 @@ function chime(){
   let d,o,key;
   do{ d=Math.floor(Math.random()*7); o=Math.floor(Math.random()*2); key=d+7*o; }while(key===lastDyad);
   lastDyad=key;
-  const m1=41+12*o+FMIN[d];
+  const m1=53+12*o+FMAJ[d];
   const d2=(d+4)%7, o2=o+(d+4>=7?1:0);
-  let m2=41+12*o2+FMIN[d2];if(m2>93)m2-=12;
+  let m2=53+12*o2+FMAJ[d2];if(m2>100)m2-=12;
   chimeNote(t,m1,0.15);
   chimeNote(t,m2,0.15);
   for(let k=1;k<=2;k++){
     const dd=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
-    chimeNote(t+k*0.40,41+12*oo+FMIN[dd],0.11);
+    chimeNote(t+k*0.40,53+12*oo+FMAJ[dd],0.11);
   }
 }
-/* generative Rhodes melody: a sparse tune wandering over the pad.
-   F minor random-walk phrases, one note every couple of seconds. */
-/* melody walks the full F natural minor scale (7 notes, not just pentatonic) */
+/* generative Rhodes melody: a bright tune bouncing over the pad.
+   F major random-walk phrases, a note roughly every second. */
+/* melody walks the full F major scale (7 notes, not just pentatonic) */
 let melTimer=null,melNext=0,melStep=3,curChord=0;
 function melNote(t,midi,vol){
   const o1=AC.createOscillator();o1.type='sine';o1.frequency.value=m2f(midi);
@@ -204,27 +204,27 @@ function melNote(t,midi,vol){
   const g=AC.createGain();
   g.gain.setValueAtTime(0.0001,t);
   g.gain.linearRampToValueAtTime(vol,t+0.07);
-  g.gain.exponentialRampToValueAtTime(0.0008,t+3.0);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+1.9);
   o1.connect(g);b.connect(g);g.connect(master);g.connect(verb);
-  o1.start(t);o2.start(t);o1.stop(t+3.2);o2.stop(t+3.2);
+  o1.start(t);o2.start(t);o1.stop(t+2.1);o2.stop(t+2.1);
 }
 function scheduleMelody(){
   if(!AC||!riding||!soundOn)return;
   const horizon=AC.currentTime+1.5;
   while(melNext<horizon){
-    if(Math.random()>0.22){
+    if(Math.random()>0.12){
       const deg=((melStep%7)+7)%7,oct=Math.floor(melStep/7);
-      const midi=41+FMIN[deg]+12*oct;
-      melNote(melNext,midi,0.085);
-      if(Math.random()<0.25)melNote(melNext+0.02,midi+12,0.03);
+      const midi=53+FMAJ[deg]+12*oct;
+      melNote(melNext,midi,0.09);
+      if(Math.random()<0.35)melNote(melNext+0.02,midi+12,0.03);
       melStep=Math.max(0,Math.min(13,melStep+Math.floor(Math.random()*5)-2));
     }
-    melNext+=[1.6,2.2,2.2,3.0,4.2][Math.floor(Math.random()*5)];
+    melNext+=[0.8,1.0,1.0,1.5,2.2][Math.floor(Math.random()*5)];
   }
 }
 function startMelody(){stopMelody();if(!AC)return;melNext=AC.currentTime+1.5;melStep=3;melTimer=setInterval(scheduleMelody,300);}
 function stopMelody(){if(melTimer){clearInterval(melTimer);melTimer=null;}}
-/* soft low percussion: a heartbeat kick + shaker tick, one beat per second, very quiet */
+/* light percussion: soft kick every beat, shaker on the off-beat, sparkle accent every 4th beat (grid stays 1s) */
 let percTimer=null,percNext=0,percBeat=0;
 function percKick(t){
   const o=AC.createOscillator(),g=AC.createGain();
@@ -250,7 +250,8 @@ function schedulePerc(){
   if(!AC||!riding||!soundOn)return;
   const horizon=AC.currentTime+1.0;
   while(percNext<horizon){
-    if(percBeat%2===0)percKick(percNext);else percTick(percNext);
+    percKick(percNext);percTick(percNext+0.5);
+    if(percBeat%4===2)percTick(percNext);
     percBeat++;percNext+=1.0;
   }
 }
@@ -332,15 +333,18 @@ const nebulaUniforms={uTime:{value:0},uRush:{value:0}};
         vec3 d=normalize(vDir);
         float n=fbm(d*2.5+vec3(0.0,uTime*0.008,uTime*0.005));
         float m=fbm(d*5.0-vec3(uTime*0.006));
-        vec3 col=vec3(0.004,0.012,0.008);
-        col+=vec3(0.02,0.22,0.10)*smoothstep(0.35,0.8,n);
-        col+=vec3(0.02,0.13,0.19)*smoothstep(0.60,0.95,m)*smoothstep(0.30,0.70,n)*0.6;
-        col+=vec3(0.04,0.20,0.13)*smoothstep(0.55,0.9,fbm(d*3.5+vec3(9.0)))*0.5;
-        col+=vec3(0.30,0.03,0.24)*uRush*smoothstep(0.35,0.85,n);
+        vec3 col=vec3(0.010,0.006,0.024);
+        col+=vec3(0.11,0.045,0.21)*smoothstep(0.35,0.8,n);
+        col+=vec3(0.02,0.16,0.20)*smoothstep(0.60,0.95,m)*smoothstep(0.30,0.70,n)*0.6;
+        col+=vec3(0.23,0.05,0.17)*smoothstep(0.55,0.9,fbm(d*3.5+vec3(9.0)))*0.55;
+        col+=vec3(0.02,0.15,0.08)*smoothstep(0.45,0.85,fbm(d*4.2+vec3(4.0)))*0.35;
+        col+=vec3(0.26,0.15,0.03)*smoothstep(0.72,0.98,n*m)*0.5;
+        col+=vec3(0.28,0.05,0.30)*uRush*smoothstep(0.35,0.85,n);
         vec3 g=floor(d*230.0);
         float h=hash13(g);
         float star=step(0.9986,h)*(0.4+0.6*abs(sin(uTime*1.5+h*40.0)));
-        col+=vec3(0.78,1.0,0.90)*star*(0.35+0.65*smoothstep(0.25,0.75,n));
+        vec3 starCol=mix(vec3(0.75,0.85,1.0),vec3(1.0,0.87,0.68),step(0.5,fract(h*7.31)));
+        col+=starCol*star*(0.35+0.65*smoothstep(0.25,0.75,n));
         gl_FragColor=vec4(col,1.0);
       }`
   });
@@ -829,7 +833,7 @@ function frame(now){
         spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:w.hop===2?0.45:0.35);
         if(AC&&soundOn){
           const d=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
-          chimeNote(AC.currentTime,41+12*oo+FMIN[d],0.06);
+          chimeNote(AC.currentTime,53+12*oo+FMAJ[d],0.06);
         }
       }
     }
