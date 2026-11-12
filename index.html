@@ -697,7 +697,7 @@ cvs.addEventListener('pointerup',e=>{
   if(dragMoved<14&&dt<350&&riding){
     const nowT=performance.now();
     if(headActive&&nowT-lastTapT<350&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<40){
-      if(lastDQ){baseDQ.copy(lastDQ);baseIsAbs=sawAbsolute;qRel.identity();qRelS.identity();}
+      if(lastDQ){baseDQ.copy(lastDQ);prevQ=lastDQ.clone();baseIsAbs=sawAbsolute;qRel.identity();qRelS.identity();}
       lastTapT=0; // double-tap: recenter view
     }else{
       lastTapT=nowT;lastTapX=e.clientX;lastTapY=e.clientY;
@@ -712,6 +712,8 @@ cvs.addEventListener('pointercancel',()=>{dragging=false;charging=false;chargeEl
 let headActive=false,baseDQ=null,baseIsAbs=false,lastDQ=null,sawAbsolute=false;
 let lastTapT=0,lastTapX=0,lastTapY=0;
 const qRel=new THREE.Quaternion(),qRelS=new THREE.Quaternion(),tmpQ=new THREE.Quaternion();
+const qStep=new THREE.Quaternion(),qStepT=new THREE.Quaternion(),qStepE=new THREE.Euler();
+let prevQ=null;
 const trackE=new THREE.Euler(),zAxis=new THREE.Vector3(0,0,1),qTmpA=new THREE.Quaternion();
 function onOrient(e,isAbs){
   if(e.alpha===null||e.beta===null||e.gamma===null)return;
@@ -726,12 +728,16 @@ function onOrient(e,isAbs){
   lastDQ=q;
   if(!riding)return;
   if(!baseDQ){
-    baseDQ=q.clone();qRel.identity();qRelS.identity();
+    baseDQ=q.clone();prevQ=q.clone();qRel.identity();qRelS.identity();
     if(!headActive){headActive=true;
       if(!fixedMode)hintEl.innerHTML='Move your phone to look around &middot; Tap to pulse &middot; Hold to surge &middot; Double-tap to recenter';}
   }else{
-    qRel.copy(q).multiply(tmpQ.copy(baseDQ).invert());
-    qRel.x=-qRel.x; // filming-convention pitch mirror, in quaternion space: no Euler wrap, full sphere
+    // incremental delta: mirror each small step's pitch (the Euler flip George approved),
+    // accumulated in quaternion space so the sphere never folds at 90 degrees
+    qStep.copy(q).multiply(qStepT.copy(prevQ).invert());
+    qStepE.setFromQuaternion(qStep,'YXZ');qStepE.x=-qStepE.x;qStep.setFromEuler(qStepE);
+    qStep.multiply(qRel);qRel.copy(qStep).normalize();
+    prevQ.copy(q);
   }
 }
 window.addEventListener('deviceorientation',e=>onOrient(e,false));
@@ -832,7 +838,7 @@ function beginRide(){
   }
   titleEl.classList.add('hidden');endEl.classList.add('hidden');
   riding=true;curSeg=-1;curZone=-1;
-  baseDQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
+  baseDQ=null;prevQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
   tappedCount=0;streak=0;bestStreak=0;surgeV=0;beatIdx=0;beatInit=false;target=null;targetHot=false;targetRing.visible=false;
   driftPos.set(0,12,26);driftVel.set(0,0,0);
   driftStartDist=driftPos.distanceTo(heartCore.position);
