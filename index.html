@@ -57,7 +57,7 @@ canvas{display:block;}
 <div id="chargeRing"></div>
 <div class="screen" id="title">
   <h1>SYNAPSE</h1>
-  <p>Roam the mindscape. Drag to look, hold two fingers to dive deeper, and tap the gold-ringed ball on the beat.</p>
+  <p>Sit in the mindscape. Drag to look, and tap the gold-ringed ball on the beat to dive. Every dive changes the colors.</p>
   <button class="btn" id="beginBtn">BEGIN THE DRIFT</button>
 </div>
 <div class="screen hidden" id="end">
@@ -88,12 +88,12 @@ document.addEventListener('touchend',e=>{const n=Date.now();if(n-lastTE<300)e.pr
 let AC=null, master=null, soundOn=true, verb=null, percNoise=null;
 let padVoices=[], whooshGain=null, whooshFilter=null, droneOsc=null, droneGain=null;
 const CHORDS=[
-  {root:29,iv:[0,4,7,14]},   // Fmaj9 (I)
-  {root:36,iv:[0,4,7,14]},   // Cmaj9 (V, bright lift)
-  {root:34,iv:[0,4,7,14]},   // Bbmaj9 (IV)
-  {root:29,iv:[0,4,7,14]},   // Fmaj9 (I, home)
-  {root:31,iv:[0,4,7,14]},   // Gmaj9 (II, sunny borrowed chord)
-  {root:29,iv:[0,4,7,14]},   // Fmaj9 (finale)
+  {root:41,iv:[0,4,7,14]},   // Fmaj9 (I)
+  {root:48,iv:[0,4,7,14]},   // Cmaj9 (V, bright lift)
+  {root:46,iv:[0,4,7,14]},   // Bbmaj9 (IV)
+  {root:41,iv:[0,4,7,14]},   // Fmaj9 (I, home)
+  {root:43,iv:[0,4,7,14]},   // Gmaj9 (II, sunny borrowed chord)
+  {root:41,iv:[0,4,7,14]},   // Fmaj9 (finale)
 ];
 const m2f=m=>440*Math.pow(2,(m-69)/12);
 function makeIR(dur,decay){
@@ -107,8 +107,8 @@ function initAudio(){
   try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
   master=AC.createGain();master.gain.value=0.85;master.connect(AC.destination);
   // generated convolution reverb: the atmosphere
-  verb=AC.createConvolver();verb.buffer=makeIR(3.0,2.8);
-  const wet=AC.createGain();wet.gain.value=0.6;verb.connect(wet);wet.connect(master);
+  verb=AC.createConvolver();verb.buffer=makeIR(2.0,3.4);
+  const wet=AC.createGain();wet.gain.value=0.34;verb.connect(wet);wet.connect(master);
   // pad bus with Rhodes-style tremolo
   const padBus=AC.createGain();padBus.gain.value=1.0;
   const trem=AC.createGain();trem.gain.value=0.85;
@@ -149,13 +149,14 @@ function setChord(idx,soft){
     v.g.gain.setTargetAtTime(0.0001,t,0.5);          // dip out like lifting the keys
     v.o1.frequency.setTargetAtTime(f,t+0.4,0.7);     // change chord while dipped
     v.o2.frequency.setTargetAtTime(f*2.003,t+0.4,0.7);
-    v.g.gain.setTargetAtTime(soft?0.045:0.07,t+0.8,1.6); // bloom back in
+    v.g.gain.setTargetAtTime(soft?0.05:0.075,t+0.55,0.8); // bloom back in
   });
   droneOsc.frequency.setTargetAtTime(m2f(ch.root-12),t,1.0);
-  droneGain.gain.setTargetAtTime(soft?0.02:0.035,t,1.5);
+  droneGain.gain.setTargetAtTime(soft?0.006:0.010,t,1.5);
 }
 // tap dyads: two pentatonic notes a fifth apart (3 scale steps), picked at random
 const FMAJ=[0,2,4,5,7,9,11]; // F major semitone offsets
+const PENT=[0,2,4,7,9]; // F major pentatonic: the sunshine scale, no tension tones
 let lastDyad=-1;
 function chimeNote(t,midi,vol){
   [['triangle',1,vol],['sine',2,vol*0.35]].forEach(([ty,mult,v])=>{
@@ -170,48 +171,47 @@ function chimeNote(t,midi,vol){
 function chime(){
   if(!AC||!soundOn)return;const t=AC.currentTime;
   let d,o,key;
-  do{ d=Math.floor(Math.random()*7); o=Math.floor(Math.random()*2); key=d+7*o; }while(key===lastDyad);
+  do{ d=Math.floor(Math.random()*5); o=Math.floor(Math.random()*2); key=d+5*o; }while(key===lastDyad);
   lastDyad=key;
-  const m1=53+12*o+FMAJ[d];
-  const d2=(d+4)%7, o2=o+(d+4>=7?1:0);
-  let m2=53+12*o2+FMAJ[d2];if(m2>100)m2-=12;
+  const m1=65+12*o+PENT[d];
+  const d2=(d+2)%5, o2=o+(d+2>=5?1:0);
+  let m2=65+12*o2+PENT[d2];if(m2>101)m2-=12;
   chimeNote(t,m1,0.15);
-  chimeNote(t,m2,0.15);
+  chimeNote(t,m2,0.13);
   for(let k=1;k<=2;k++){
-    const dd=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
-    chimeNote(t+k*0.40,53+12*oo+FMAJ[dd],0.11);
+    const dd=Math.floor(Math.random()*5),oo=Math.floor(Math.random()*3);
+    chimeNote(t+k*0.30,65+12*oo+PENT[dd],0.10);
   }
 }
-/* generative Rhodes melody: a bright tune bouncing over the pad.
-   F major random-walk phrases, a note roughly every second. */
-/* melody walks the full F major scale (7 notes, not just pentatonic) */
-let melTimer=null,melNext=0,melStep=3,curChord=0;
+/* melody: a music-box bounce on the pentatonic scale — short bright plucks,
+   leaping up and stepping back, twice the old density. Built to sound happy. */
+let melTimer=null,melNext=0,melStep=2,curChord=0;
 function melNote(t,midi,vol){
-  const o1=AC.createOscillator();o1.type='sine';o1.frequency.value=m2f(midi);
-  const o2=AC.createOscillator();o2.type='triangle';o2.frequency.value=m2f(midi)*2.004;
-  const b=AC.createGain();b.gain.value=0.05;o2.connect(b);
+  const o1=AC.createOscillator();o1.type='triangle';o1.frequency.value=m2f(midi);
+  const o2=AC.createOscillator();o2.type='sine';o2.frequency.value=m2f(midi)*2.0;
+  const b=AC.createGain();b.gain.value=0.18;o2.connect(b);
   const g=AC.createGain();
   g.gain.setValueAtTime(0.0001,t);
-  g.gain.linearRampToValueAtTime(vol,t+0.07);
-  g.gain.exponentialRampToValueAtTime(0.0008,t+1.9);
+  g.gain.linearRampToValueAtTime(vol,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.55);
   o1.connect(g);b.connect(g);g.connect(master);g.connect(verb);
-  o1.start(t);o2.start(t);o1.stop(t+2.1);o2.stop(t+2.1);
+  o1.start(t);o2.start(t);o1.stop(t+0.7);o2.stop(t+0.7);
 }
 function scheduleMelody(){
   if(!AC||!riding||!soundOn)return;
-  const horizon=AC.currentTime+1.5;
+  const horizon=AC.currentTime+1.2;
   while(melNext<horizon){
-    if(Math.random()>0.12){
-      const deg=((melStep%7)+7)%7,oct=Math.floor(melStep/7);
-      const midi=53+FMAJ[deg]+12*oct;
-      melNote(melNext,midi,0.09);
-      if(Math.random()<0.35)melNote(melNext+0.02,midi+12,0.03);
-      melStep=Math.max(0,Math.min(13,melStep+Math.floor(Math.random()*5)-2));
-    }
-    melNext+=[0.8,1.0,1.0,1.5,2.2][Math.floor(Math.random()*5)];
+    const deg=((melStep%5)+5)%5,oct=Math.floor(melStep/5);
+    const midi=65+PENT[deg]+12*oct;
+    melNote(melNext,midi,0.10);
+    if(Math.random()<0.30)melNote(melNext,midi+12,0.035); // octave sparkle
+    if(Math.random()<0.45)melStep+=2;else melStep-=1;      // skip up, step back
+    if(melStep>9)melStep=7;
+    melStep=Math.max(0,Math.min(9,melStep));
+    melNext+=(Math.random()<0.75?0.5:1.0);
   }
 }
-function startMelody(){stopMelody();if(!AC)return;melNext=AC.currentTime+1.5;melStep=3;melTimer=setInterval(scheduleMelody,300);}
+function startMelody(){stopMelody();if(!AC)return;melNext=AC.currentTime+1.0;melStep=2;melTimer=setInterval(scheduleMelody,300);}
 function stopMelody(){if(melTimer){clearInterval(melTimer);melTimer=null;}}
 /* light percussion: soft kick every beat, shaker on the off-beat, sparkle accent every 4th beat (grid stays 1s) */
 let percTimer=null,percNext=0,percBeat=0;
@@ -235,11 +235,21 @@ function percTick(t){
   n.connect(f);f.connect(g);g.connect(master);
   n.start(t);n.stop(t+0.08);
 }
+function percPop(t){
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sine';
+  o.frequency.setValueAtTime(620,t);o.frequency.exponentialRampToValueAtTime(940,t+0.09);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(0.022,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.16);
+  o.connect(g);g.connect(master);
+  o.start(t);o.stop(t+0.2);
+}
 function schedulePerc(){
   if(!AC||!riding||!soundOn)return;
   const horizon=AC.currentTime+1.0;
   while(percNext<horizon){
-    percKick(percNext);percTick(percNext+0.5);
+    percKick(percNext);percTick(percNext+0.5);if(percBeat%4===0)percPop(percNext);
     if(percBeat%4===2)percTick(percNext);
     percBeat++;percNext+=1.0;
   }
@@ -327,14 +337,22 @@ const GLOWTEX=glowTexture();
 const PALETTE=[0x3dff9e,0x3dff9e,0x29e6ff,0x7dffce,0xb6ff3d,0x29e6ff,0xff3df0];
 
 /* ================= nebula skybox ================= */
-const nebulaUniforms={uTime:{value:0},uRush:{value:0}};
+const nebulaUniforms={uTime:{value:0},uRush:{value:0},uHue:{value:0}};
 {
   const mat=new THREE.ShaderMaterial({
     uniforms:nebulaUniforms,side:THREE.BackSide,depthWrite:false,fog:false,
     vertexShader:'varying vec3 vDir;void main(){vDir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     fragmentShader:`
-      uniform float uTime;uniform float uRush;varying vec3 vDir;
+      uniform float uTime;uniform float uRush;uniform float uHue;varying vec3 vDir;
       ${NOISE_GLSL}
+      vec3 hueShift(vec3 c,float h){
+        float Y=dot(c,vec3(0.299,0.587,0.114));
+        float I=dot(c,vec3(0.596,-0.275,-0.321));
+        float Q=dot(c,vec3(0.212,-0.523,0.311));
+        float a=h*6.2831853;float ca=cos(a);float sa=sin(a);
+        float I2=I*ca-Q*sa;float Q2=I*sa+Q*ca;
+        return vec3(Y+0.956*I2+0.619*Q2,Y-0.272*I2-0.647*Q2,Y-1.106*I2+1.703*Q2);
+      }
       void main(){
         vec3 d=normalize(vDir);
         float n=fbm(d*2.5+vec3(0.0,uTime*0.008,uTime*0.005));
@@ -351,6 +369,7 @@ const nebulaUniforms={uTime:{value:0},uRush:{value:0}};
         float star=step(0.9986,h)*(0.4+0.6*abs(sin(uTime*1.5+h*40.0)));
         vec3 starCol=mix(vec3(0.75,0.85,1.0),vec3(1.0,0.87,0.68),step(0.5,fract(h*7.31)));
         col+=starCol*star*(0.35+0.65*smoothstep(0.25,0.75,n));
+        col=hueShift(col,uHue);
         gl_FragColor=vec4(col,1.0);
       }`
   });
@@ -483,7 +502,7 @@ function addCluster(pos,color,scale){
       const tm=threadMaterial(new THREE.Color(c.color).lerp(new THREE.Color(o.color),0.5));
       const mesh=new THREE.Mesh(new THREE.TubeGeometry(bc,16,0.16,5,false),tm);
       scene.add(mesh);
-      c.threads.push(tm);o.threads.push(tm);threadMats.push(tm);
+      tm.userData.base=tm.uniforms.uColor.value.clone();c.threads.push(tm);o.threads.push(tm);threadMats.push(tm);
       c.links.push(o);o.links.push(c);
     });
   });
@@ -699,9 +718,6 @@ const chargeEl=document.getElementById('chargeRing');
 
 const cvs=renderer.domElement;
 const activePtrs=new Set();let multiTouch=false,dragId=null,syncDrag=false;
-let thrustKey=false;
-window.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='KeyW'||e.code==='ArrowUp'){thrustKey=true;if(e.code==='Space')e.preventDefault();}});
-window.addEventListener('keyup',e=>{if(e.code==='Space'||e.code==='KeyW'||e.code==='ArrowUp')thrustKey=false;});
 cvs.addEventListener('pointerdown',e=>{activePtrs.add(e.pointerId);if(activePtrs.size>=2)multiTouch=true;
   if(dragId===null)dragId=e.pointerId;
   dragging=true;dragMoved=0;dragStart=performance.now();sx=e.clientX;sy=e.clientY;cvs.setPointerCapture(e.pointerId);
@@ -806,6 +822,25 @@ function onBeat(k){
   if(targetHot&&k>=targetUntilBeat){clearTarget(true);streak=Math.floor(streak/2);updateBalls();} // a miss halves the streak, never zeroes it
   if(!targetHot)lightTarget(k);
 }
+/* ================= palette trips =================
+   Every dive rotates the whole scene's hue by a golden step. */
+let palShift=0,palTarget=0,palApplied=-1;
+const _pc=new THREE.Color();
+function applyPalette(){
+  for(const c of clusters){
+    _pc.setHex(c.color).offsetHSL(palShift,0,0);
+    c.core.material.uniforms.uColor.value.copy(_pc);
+    c.inner.material.color.copy(_pc);
+    c.halo.material.color.copy(_pc);
+    c.sats.children.forEach(sm=>{sm.material.color.copy(_pc);});
+  }
+  for(const tm of threadMats)tm.uniforms.uColor.value.copy(tm.userData.base).offsetHSL(palShift,0,0);
+  _pc.setHex(0x3dff9e).offsetHSL(palShift,0,0);
+  heartCore.material.uniforms.uColor.value.copy(_pc);
+  _pc.setHex(0xd9ffec).offsetHSL(palShift,0,0);
+  heartInner.material.color.copy(_pc);
+  nebulaUniforms.uHue.value=palShift;
+}
 /* ================= the fusion dive =================
    A target hit drops you into that ball's fractal: kaleidoscope warp,
    dimension gauge climbing, exit quantized to the beat grid. */
@@ -815,6 +850,7 @@ function startDive(c){
   diveChain=(nowMs-lastDiveEndMs<4000)?Math.min(4,diveChain+1):0;
   const beats=2+(diveChain>=2?1:0);
   diving=true;diveTarget=c;diveFromDim=c.dim;diveStartMs=nowMs;
+  palTarget+=0.137; // every trip turns the world's colors
   if(AC){const nowT=AC.currentTime;const idx=Math.floor(nowT-driftBeat0)+1;diveEndT=driftBeat0+idx+(beats-1);diveDurT=Math.max(0.6,diveEndT-nowT);}
   else{diveEndT=0;diveDurT=beats;}
   dimEl.style.opacity='1';
@@ -875,6 +911,7 @@ function beginRide(){
   baseDQ=null;prevQ=null;baseIsAbs=false;headActive=false;qRel.identity();qRelS.identity();
   tappedCount=0;streak=0;bestStreak=0;surgeV=0;beatIdx=0;beatInit=false;target=null;targetHot=false;targetRing.visible=false;
   diving=false;diveChain=0;diveEnv=0;dimEl.style.opacity='0';
+  palTarget=0;palShift=0;applyPalette();palApplied=0;
   driftPos.set(0,12,26);driftVel.set(0,0,0);
   driftStartDist=driftPos.distanceTo(heartCore.position);
   qBase0.setFromRotationMatrix(new THREE.Matrix4().lookAt(driftPos,heartCore.position,new THREE.Vector3(0,1,0)));
@@ -882,7 +919,7 @@ function beginRide(){
   clusters.forEach(c=>{c.tapped=false;c.halo.material.opacity=0.18;c.inner.material.opacity=0.6;});
   updateBalls();ballsEl.style.display='block';
   hudEl.classList.add('on');hintEl.classList.add('on');
-  hintEl.innerHTML='Drag to look &middot; Hold two fingers to dive deeper &middot; Tap the gold-ringed ball on the beat';
+  hintEl.innerHTML='Drag to look &middot; Tap the gold-ringed ball to dive &middot; Every dive trips the colors';
   setTimeout(()=>hintEl.classList.remove('on'),9000);
   setChord(0,false);startMelody();startPerc();
   driftBeat0=percNext;beatInit=true;
@@ -944,7 +981,7 @@ function frame(now){
         spawnRing(w.c.grp.position,w.c.color,w.hop===1?0.6:w.hop===2?0.45:0.35);
         if(AC&&soundOn){
           const d=Math.floor(Math.random()*7),oo=Math.floor(Math.random()*3);
-          chimeNote(AC.currentTime,53+12*oo+FMAJ[d],0.06);
+          chimeNote(AC.currentTime,65+12*oo+FMAJ[d],0.06);
         }
       }
     }
@@ -992,11 +1029,12 @@ function frame(now){
   const distH=driftPos.distanceTo(heartCore.position);
   const progress=1-clamp(distH/driftStartDist,0,1);
   surgeV*=Math.pow(0.35,dt);
-  const speedTgt=DRIFT_BASE+Math.min(DRIFT_STREAK_CAP,streak*DRIFT_PER_STREAK)+surgeV+progress*progress*DRIFT_GRAV+((activePtrs.size>=2||thrustKey)?DRIFT_THRUST:0)+(diving?16+diveChain*3:0);
-  driftVel.lerp(tmpV1.copy(moveDir).multiplyScalar(speedTgt),1-Math.pow(0.05,dt));
+  // fixed camera (George's call): no ambient travel — motion comes only from dives and their exit surge
+  const speedTgt=(diving?34+diveChain*5:0)+surgeV;
+  driftVel.lerp(tmpV1.copy(moveDir).multiplyScalar(speedTgt),1-Math.pow(diving?0.0005:0.05,dt));
   driftPos.addScaledVector(driftVel,dt);
   const speedNow=driftVel.length();
-  const sNorm=clamp(speedNow/20,0,1);
+  const sNorm=clamp(speedNow/34,0,1);
   camera.position.copy(driftPos);
   camera.position.x+=Math.sin(tsec*0.5)*0.7+Math.sin(tsec*1.31)*0.3;
   camera.position.y+=Math.sin(tsec*0.42+2.0)*0.5+Math.sin(tsec*0.6)*0.6;
@@ -1020,6 +1058,8 @@ function frame(now){
   diveEnv=lerp(diveEnv,diving?1:0,1-Math.pow(diving?0.0005:0.02,dt));
   kaleidoPass.uniforms.uK.value=diveEnv*(0.8+0.05*diveChain);
   kaleidoPass.uniforms.uTime.value=tsec;
+  palShift=lerp(palShift,palTarget,1-Math.pow(0.002,dt));
+  if(Math.abs(palShift-palApplied)>0.0004){applyPalette();palApplied=palShift;}
   if(diving||diveEnv>0.03){
     const dp=(AC&&diveEndT>0)?clamp(1-(diveEndT-AC.currentTime)/diveDurT,0,1):clamp((performance.now()-diveStartMs)/(diveDurT*1000),0,1);
     const Dv=lerp(diveFromDim,Math.min(1.97,diveFromDim+0.34+diveChain*0.03),1-Math.pow(1-dp,2));
@@ -1030,7 +1070,7 @@ function frame(now){
   if(Math.abs(camera.fov-fovSm)>0.1){camera.fov=fovSm;camera.updateProjectionMatrix();}
   nebulaUniforms.uRush.value=lerp(nebulaUniforms.uRush.value,clamp((sNorm-0.45)/0.55,0,1),1-Math.pow(0.01,dt));
   {
-    const sp=streaks.geometry.attributes.position,vz=(14+sNorm*215)*dt;
+    const sp=streaks.geometry.attributes.position,vz=(2+sNorm*230)*dt;
     for(let i=0;i<sp.count;i++){
       let z=sp.getZ(i)+vz;
       if(z>2){z-=107;sp.setX(i,(Math.random()-0.5)*60);sp.setY(i,(Math.random()-0.5)*40);}
